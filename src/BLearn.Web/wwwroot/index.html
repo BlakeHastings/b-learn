@@ -4,44 +4,107 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>b-learn</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='3' r='2' fill='%232f6fb3'/%3E%3Ccircle cx='4' cy='13' r='2' fill='%232f6fb3'/%3E%3Ccircle cx='12' cy='13' r='2' fill='%232f6fb3'/%3E%3Cpath d='M8 5L4 11M8 5l4 6' stroke='%232f6fb3' stroke-width='1.2'/%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #e2e0d8;
-    --down: #2f6fb3; --up: #8a5a1f; --lateral: #5d7a3a; --stub: #9a978c; --accent: #2f6fb3;
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #e2e0d8; --soft: #efede6;
+    --down: #2f6fb3; --up: #8a5a1f; --lateral: #4f7a2a; --stub: #9a978c; --accent: #2f6fb3;
+    --warn: #a15c00; --warn-bg: #fff4e0; --bad: #b3261e; --good: #2e7d32;
     --tip-bg: #fffdf7; --shadow: 0 6px 24px rgba(0,0,0,.12);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #17171a; --panel: #1f1f23; --ink: #e8e6e0; --muted: #9c9a93; --line: #34343a;
+      --bg: #17171a; --panel: #1f1f23; --ink: #e8e6e0; --muted: #9c9a93; --line: #34343a; --soft: #26262b;
       --down: #7fb0e8; --up: #e0ae6c; --lateral: #a7c97d; --stub: #77756e; --accent: #7fb0e8;
+      --warn: #f0b45c; --warn-bg: #3a2c14; --bad: #ef8a80; --good: #8fd18f;
       --tip-bg: #26262b; --shadow: 0 6px 24px rgba(0,0,0,.5);
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 20px; }
+  button { font: inherit; cursor: pointer; }
+  input, textarea { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+  .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 5px 12px; font-size: 14px; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.small { padding: 1px 8px; font-size: 12px; }
+  .hidden { display: none !important; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .9em; }
+  pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 13px; }
+
+  /* picker */
+  #picker { max-width: 760px; margin: 48px auto; padding: 0 16px; }
+  #picker h1 { margin: 0 0 4px; }
+  #picker .lead { color: var(--muted); margin: 0 0 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; }
+  .recent li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); align-items: center; }
+  .recent li:first-child { border-top: 0; }
+  .recent ul { list-style: none; margin: 0; padding: 0; }
+  .recent .path { font-size: 12px; color: var(--muted); word-break: break-all; }
+  .form { display: grid; gap: 10px; }
+  .form label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+  .form label.check { display: flex; gap: 8px; align-items: center; color: var(--ink); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .error { color: var(--bad); font-size: 14px; }
+
+  /* app shell */
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 20px 8px; }
   .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .brand { font-weight: 700; }
   .brand small { font-weight: 400; color: var(--muted); margin-left: 6px; }
-  .health { margin-left: auto; font-size: 13px; color: var(--muted); }
-  .health.bad { color: #c0392b; font-weight: 600; }
+  .pill { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .pill.private { color: var(--warn); }
+  .health { font-size: 13px; color: var(--muted); }
+  .tabs { display: flex; gap: 4px; margin-left: auto; }
+  .tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 6px; padding: 3px 12px; font-size: 14px; }
+  .tabs button.on { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  #search { width: 200px; font-size: 14px; padding: 3px 10px; }
+  .results { position: absolute; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); min-width: 260px; }
+  .results a { display: block; padding: 6px 12px; color: var(--ink); text-decoration: none; font-size: 14px; }
+  .results a:hover { background: var(--soft); }
   .trail { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; }
-  .trail button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 2px 10px; cursor: pointer; font: inherit; }
+  .trail button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 1px 10px; font-size: 13px; }
   .trail button.here { border-color: var(--accent); font-weight: 600; }
   .trail .step { color: var(--muted); font-size: 12px; }
   .depth { font-size: 12px; color: var(--muted); margin-left: 8px; }
+
   main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; max-width: 1180px; margin: 0 auto; padding: 24px 20px 80px; }
   @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
   article { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px 28px; min-width: 0; }
   h1 { margin: 0 0 4px; font-size: 30px; line-height: 1.2; }
-  .gloss { color: var(--muted); font-style: italic; margin: 0 0 18px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 6px; }
-  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: 14px; }
-  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .92em; }
+  .title-row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .gloss { color: var(--muted); font-style: italic; margin: 0 0 14px; }
+  article h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 6px; }
   .arrival { display: inline-block; font-size: 12px; margin-bottom: 8px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .status { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid; }
+  .status.stub { color: var(--stub); border-style: dashed; }
+  .status.unverified { color: var(--warn); }
+  .status.researched { color: var(--accent); }
+  .status.complete { color: var(--good); }
+  .banner { border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 14px; }
+  .banner.warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+  .banner.info { background: var(--soft); color: var(--muted); border: 1px solid var(--line); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .facts { list-style: none; padding: 0; margin: 0; }
+  .facts li { padding: 8px 0; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: flex-start; }
+  .facts li:first-child { border-top: 0; }
+  .facts .ftext { flex: 1; }
+  .facts .unverified-fact { color: var(--warn); }
+  sup.cite { color: var(--accent); cursor: help; font-weight: 600; margin-left: 2px; }
+  sup.cite.stale { color: var(--bad); text-decoration: line-through; }
   a.wl { color: var(--accent); text-decoration: none; border-bottom: 1px dotted currentColor; cursor: pointer; }
   a.wl.stub { color: var(--stub); border-bottom-style: dashed; }
-  .wl.broken { color: #c0392b; text-decoration: line-through; }
+  .wl.broken { color: var(--bad); text-decoration: line-through; }
+  .work { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .spinner { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .shimmer { height: 12px; border-radius: 4px; margin: 10px 0; background: linear-gradient(90deg, var(--line) 25%, var(--bg) 50%, var(--line) 75%); background-size: 200% 100%; animation: sh 1.4s infinite linear; }
+  @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .return { background: var(--soft); border-left: 3px solid var(--up); padding: 8px 12px; margin-bottom: 14px; font-size: 14px; color: var(--muted); }
+  .ask { display: flex; gap: 8px; margin-top: 8px; }
+  .ask input { flex: 1; }
+
   aside section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
   aside h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
   aside h3.down { color: var(--down); } aside h3.up { color: var(--up); } aside h3.lateral { color: var(--lateral); }
@@ -49,190 +112,567 @@
   aside li { padding: 5px 0; border-top: 1px solid var(--line); font-size: 14px; }
   aside li:first-child { border-top: 0; }
   aside .label { display: block; font-size: 11px; color: var(--muted); }
+  aside .label .legacy { color: var(--warn); }
   aside .empty { color: var(--muted); font-size: 13px; font-style: italic; }
+
   .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; color: #fff; vertical-align: middle; }
   .badge.down { background: var(--down); } .badge.up { background: var(--up); } .badge.lateral { background: var(--lateral); }
-  .badge.stubb { background: transparent; color: var(--stub); border: 1px dashed var(--stub); }
-  .stubbox { border: 1px dashed var(--stub); border-radius: 8px; padding: 16px; color: var(--muted); }
-  .shimmer { height: 12px; border-radius: 4px; margin: 10px 0; background: linear-gradient(90deg, var(--line) 25%, var(--bg) 50%, var(--line) 75%); background-size: 200% 100%; animation: sh 1.4s infinite linear; }
-  @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-  .return { background: var(--bg); border-left: 3px solid var(--up); padding: 8px 12px; margin-bottom: 14px; font-size: 14px; color: var(--muted); }
-  .tip { position: fixed; z-index: 20; width: 380px; max-width: calc(100vw - 24px); max-height: 60vh; overflow: auto; background: var(--tip-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 12px 14px; font-size: 14px; line-height: 1.5; }
+  @media (prefers-color-scheme: dark) { .badge { color: #17171a; } }
+
+  /* graph */
+  #graphView { max-width: 1400px; margin: 0 auto; padding: 16px 20px 60px; }
+  .graph-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .graph-wrap { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: auto; max-height: calc(100vh - 170px); }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+  .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; }
+  svg .node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  svg .node.focus rect { stroke: var(--accent); stroke-width: 2.5; }
+  svg .node.stub rect { stroke-dasharray: 5 4; stroke: var(--stub); }
+  svg .node.unverified rect { stroke: var(--warn); }
+  svg .node.complete rect, svg .node.researched rect { stroke: var(--good); }
+  svg .node.focus.complete rect, svg .node.focus.researched rect { stroke: var(--accent); }
+  svg .node text { fill: var(--ink); font-size: 13px; pointer-events: none; }
+  svg .node text.sub { fill: var(--muted); font-size: 10px; }
+  svg .node { cursor: pointer; }
+  svg .node:hover rect { stroke: var(--accent); }
+  svg .edge { fill: none; stroke-width: 1.6; }
+  svg .edge.down { stroke: var(--down); } svg .edge.lateral { stroke: var(--lateral); }
+  svg .edge.legacy { stroke-dasharray: 4 4; opacity: .7; }
+  svg .lane { fill: var(--muted); font-size: 11px; letter-spacing: .08em; }
+  svg .work-dot { fill: var(--accent); }
+
+  /* tooltips */
+  .tip { position: fixed; z-index: 40; width: 400px; max-width: calc(100vw - 24px); max-height: 60vh; overflow: auto; background: var(--tip-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 12px 14px; font-size: 14px; line-height: 1.5; }
   .tip .tt { font-weight: 700; font-size: 15px; margin-right: 6px; }
   .tip .tg { color: var(--muted); font-style: italic; margin: 6px 0; }
   .tip .ts p { margin: 6px 0; }
   .tip .hint { font-size: 11px; color: var(--muted); margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; }
+  .tip blockquote { margin: 6px 0; padding: 4px 10px; border-left: 3px solid var(--accent); color: var(--ink); }
+  .tip .meta { font-size: 12px; color: var(--muted); word-break: break-all; }
   .tip.level-2 { border-color: var(--accent); } .tip.level-3, .tip.level-4 { border-color: var(--up); }
+
+  /* agent panel */
+  #agents { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow); z-index: 50; padding: 18px 20px; overflow: auto; }
+  #agents h2 { margin: 0 0 6px; font-size: 18px; }
+  #agents h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 0 6px; }
+  #agents table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #agents td, #agents th { text-align: left; padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; z-index: 60; max-width: calc(100vw - 32px); }
 </style>
 </head>
 <body>
-<header>
-  <div class="top">
-    <span class="brand">b-learn<small id="project"></small></span>
-    <span class="health" id="health"></span>
+
+<!-- ============ store picker ============ -->
+<div id="picker" class="hidden">
+  <h1>b-learn</h1>
+  <p class="lead">Learn any topic as a graph of evidence-backed concepts. Each store is a separate file, so work and personal topics never mix.</p>
+  <div class="card recent">
+    <h2>Recent stores</h2>
+    <ul id="recentList"></ul>
   </div>
-  <div class="trail" id="trail"></div>
-</header>
-<main>
-  <article id="note"></article>
-  <aside id="side"></aside>
-</main>
+  <div class="card">
+    <h2>Open a store</h2>
+    <div class="row"><input id="openPath" placeholder="C:\path\to\topic.blearn" style="flex:1"><button class="btn" id="openBtn">Open</button></div>
+    <div class="error" id="openErr"></div>
+  </div>
+  <div class="card">
+    <h2>Create a store</h2>
+    <div class="form">
+      <label>File <input id="newPath" placeholder="C:\Users\you\Documents\b-learn\topic.blearn"></label>
+      <label>Name <input id="newName" placeholder="Learning Rust"></label>
+      <label>What do you want to learn? (the root concept) <input id="newRoot" placeholder="Rust"></label>
+      <label>One-line description of it <input id="newGloss" placeholder="A systems programming language focused on safety and speed."></label>
+      <label class="check"><input type="checkbox" id="newPrivate"> Private (contains proprietary information; agents must not leak it)</label>
+      <div class="row"><button class="btn primary" id="createBtn">Create</button><span class="error" id="createErr"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ app ============ -->
+<div id="app" class="hidden">
+  <header>
+    <div class="top">
+      <span class="brand">b-learn<small id="storeName"></small></span>
+      <span class="pill private hidden" id="privatePill">private</span>
+      <span class="health" id="health"></span>
+      <div class="tabs">
+        <input id="search" placeholder="Search concepts" autocomplete="off">
+        <button id="tabConcept" class="on">Concept</button>
+        <button id="tabGraph">Graph</button>
+        <button id="tabAgents">Agents</button>
+        <button id="closeStore" title="Choose another store">Stores</button>
+      </div>
+    </div>
+    <div class="trail" id="trail"></div>
+  </header>
+  <div class="results hidden" id="results"></div>
+
+  <main id="conceptView">
+    <article id="note"></article>
+    <aside id="side"></aside>
+  </main>
+
+  <div id="graphView" class="hidden">
+    <div class="graph-bar">
+      <span>Steps out:</span>
+      <button class="btn small" data-hops="1">1</button><button class="btn small" data-hops="2">2</button><button class="btn small" data-hops="3">3</button>
+      <span class="legend">
+        <span><i style="background:var(--down)"></i>down (built on, requires, is a, part)</span>
+        <span><i style="background:var(--lateral)"></i>sideways</span>
+        <span><i style="background:var(--stub);height:0;border-top:2px dashed var(--stub)"></i>unverified edge</span>
+      </span>
+      <span>Up is above, deeper is below. Click a concept to focus it.</span>
+    </div>
+    <div class="graph-wrap"><svg id="graph"></svg></div>
+  </div>
+</div>
+
+<div id="agents" class="hidden"></div>
+<div id="toast" class="hidden"></div>
+
 <script>
 const ARROW = { down: "↓ deeper", up: "↑ up", lateral: "↔ sideways" };
+const DIR_ORDER = ["down", "lateral", "up"];
+let state = null;            // /api/state
+let current = null;          // current concept payload
+let view = "concept";        // concept | graph
+let hops = 2;
+let trail = [];              // [{id, title, via}]
 const cache = new Map();
-let project = null;
-let trail = [];          // [{id, title, via}] the journey so far; via = direction taken to arrive
-let current = null;
 
-async function fetchNote(id, from) {
-  const key = id + "|" + (from || "");
-  if (!cache.has(key)) {
-    const url = `/api/notes/${encodeURIComponent(id)}` + (from ? `?from=${encodeURIComponent(from)}` : "");
-    cache.set(key, fetch(url).then(r => r.ok ? r.json() : null));
-  }
-  return cache.get(key);
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function badge(dir) { return dir ? `<span class="badge ${dir}">${ARROW[dir]}</span>` : ""; }
+function statusPill(s) { return `<span class="status ${s}">${s}</span>`; }
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.remove("hidden");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add("hidden"), 3500);
+}
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) throw Object.assign(new Error(data?.message || data?.error || res.statusText), { data, status: res.status });
+  return data;
+}
+function getConcept(id) {
+  if (!cache.has(id)) cache.set(id, api(`/api/concepts/${encodeURIComponent(id)}`).catch(e => { cache.delete(id); throw e; }));
+  return cache.get(id);
+}
+const relCache = new Map();
+function getRelation(from, to) {
+  const k = from + "|" + to;
+  if (!relCache.has(k)) relCache.set(k, api(`/api/relation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).catch(() => null));
+  return relCache.get(k);
+}
+function invalidate() { cache.clear(); relCache.clear(); }
+function trailKey() { return "blearn.trail." + (state?.store?.path || ""); }
+function saveTrail() { try { sessionStorage.setItem(trailKey(), JSON.stringify(trail)); } catch {} }
+function loadTrail() { try { trail = JSON.parse(sessionStorage.getItem(trailKey()) || "[]"); } catch { trail = []; } }
+
+// ---------- boot / picker ----------
+async function boot() {
+  state = await api("/api/state");
+  if (!state.store) return showPicker();
+  showApp();
 }
 
-function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function showPicker() {
+  $("app").classList.add("hidden"); $("picker").classList.remove("hidden");
+  const list = state.recent || [];
+  $("recentList").innerHTML = list.length ? list.map(r => `<li>
+      <div><b>${esc(r.name)}</b><div class="path">${esc(r.path)}${r.exists ? "" : " (missing)"}</div></div>
+      <button class="btn" data-open="${esc(r.path)}" ${r.exists ? "" : "disabled"}>Open</button></li>`).join("")
+    : `<li><span class="path">No stores yet. Create one below.</span></li>`;
+  $("recentList").querySelectorAll("[data-open]").forEach(b => b.onclick = () => openStore(b.dataset.open, $("openErr")));
+}
 
-function badge(dir) { return dir ? `<span class="badge ${dir}">${ARROW[dir]}</span>` : ""; }
+async function openStore(path, errEl) {
+  errEl.textContent = "";
+  try { await api("/api/store/open", { method: "POST", body: { path } }); await boot(); }
+  catch (e) { errEl.textContent = e.message; }
+}
 
-function logJourney(evt) {
-  fetch("/api/journey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(evt) }).catch(() => {});
+$("openBtn").onclick = () => openStore($("openPath").value.trim(), $("openErr"));
+$("createBtn").onclick = async () => {
+  $("createErr").textContent = "";
+  try {
+    await api("/api/store/create", { method: "POST", body: {
+      path: $("newPath").value.trim(), name: $("newName").value.trim(), rootTitle: $("newRoot").value.trim(),
+      rootGloss: $("newGloss").value.trim(), private: $("newPrivate").checked } });
+    await boot();
+  } catch (e) { $("createErr").textContent = e.data?.message || e.message; }
+};
+$("closeStore").onclick = async () => { await api("/api/store/close", { method: "POST" }); location.hash = ""; await boot(); };
+
+// ---------- app shell ----------
+function showApp() {
+  $("picker").classList.add("hidden"); $("app").classList.remove("hidden");
+  const s = state.store;
+  $("storeName").textContent = s.name;
+  $("privatePill").classList.toggle("hidden", !s.private);
+  renderHealth();
+  loadTrail();
+  route();
+}
+
+function renderHealth() {
+  const s = state.store, c = s.conceptsByStatus || {};
+  const parts = ["complete", "researched", "unverified", "stub"].filter(k => c[k]).map(k => `${c[k]} ${k}`);
+  $("health").textContent = `${parts.join(" · ")} · ${s.evidence} evidence${s.staleEvidence ? ` (${s.staleEvidence} stale)` : ""}`;
+}
+
+function parseHash() {
+  const m = location.hash.match(/^#\/(c|g)\/(.+)$/);
+  return m ? { view: m[1] === "g" ? "graph" : "concept", id: decodeURIComponent(m[2]) } : null;
+}
+
+function setView(v) {
+  view = v;
+  $("tabConcept").classList.toggle("on", v === "concept");
+  $("tabGraph").classList.toggle("on", v === "graph");
+  $("conceptView").classList.toggle("hidden", v !== "concept");
+  $("graphView").classList.toggle("hidden", v !== "graph");
+}
+
+$("tabConcept").onclick = () => { if (current) location.hash = `#/c/${current.concept.id}`; };
+$("tabGraph").onclick = () => { if (current) location.hash = `#/g/${current.concept.id}`; };
+$("tabAgents").onclick = toggleAgents;
+window.addEventListener("hashchange", route);
+
+async function route() {
+  const h = parseHash() || { view: "concept", id: state.store.root };
+  setView(h.view);
+  if (!current || current.concept.id !== h.id) await go(h.id);
+  else if (h.view === "graph") renderGraph();
 }
 
 // ---------- navigation ----------
-async function go(id, { fromTrailIndex } = {}) {
+async function go(id, { refresh = false } = {}) {
   closeTips(0);
-  const from = current?.id;
-  const note = await fetchNote(id, from);
-  if (!note) { document.getElementById("note").innerHTML = `<p>No note <code>${esc(id)}</code>.</p>`; return; }
+  const from = current?.concept.id;
+  let data;
+  try { data = await getConcept(id); }
+  catch { $("note").innerHTML = `<p>No concept <code>${esc(id)}</code>.</p>`; return; }
 
-  const via = note.relation?.direction || null;
-  let returningFrom = null;
-  if (fromTrailIndex !== undefined) {
-    returningFrom = trail[trail.length - 1];
-    trail = trail.slice(0, fromTrailIndex + 1);
-  } else if (trail.length >= 2 && trail[trail.length - 2].id === id) {
-    returningFrom = trail.pop();
-  } else if (!trail.length || trail[trail.length - 1].id !== id) {
-    trail.push({ id: note.id, title: note.title, via });
+  let returningFrom = null, via = null;
+  if (!refresh) {
+    const rel = from && from !== id ? await getRelation(from, id) : null;
+    via = rel?.direction || null;
+    const idx = trail.findIndex(t => t.id === id);
+    if (idx >= 0 && idx < trail.length - 1) { returningFrom = trail[trail.length - 1]; trail = trail.slice(0, idx + 1); }
+    else if (!trail.length || trail[trail.length - 1].id !== id) trail.push({ id, title: data.concept.title, via });
+    if (from && from !== id) api("/api/learner/visit", { method: "POST", body: { conceptId: id, from, direction: via } }).catch(() => {});
+    saveTrail();
   }
-  if (returningFrom?.id === id) returningFrom = null;
-  if (from && from !== id) logJourney({ from, to: id, direction: via, kind: fromTrailIndex !== undefined ? "trail" : "link" });
-
-  current = note;
-  try { sessionStorage.setItem("blearn.trail", JSON.stringify(trail)); } catch {}
+  current = data;
+  current.arrival = refresh ? current.arrival : (via && from ? { from, via, rel: await getRelation(from, id) } : null);
   renderTrail();
-  renderNote(note, returningFrom);
-  renderSide(note);
-  window.scrollTo(0, 0);
+  renderNote(returningFrom);
+  renderSide();
+  if (view === "graph") renderGraph();
+  if (!refresh) window.scrollTo(0, 0);
 }
 
-function depthOf(t) {
-  let d = 0;
-  for (const s of t) d += s.via === "down" ? 1 : s.via === "up" ? -1 : 0;
-  return d;
-}
+function depthOf(t) { return t.reduce((d, s) => d + (s.via === "down" ? 1 : s.via === "up" ? -1 : 0), 0); }
 
 function renderTrail() {
-  const el = document.getElementById("trail");
+  const el = $("trail");
   el.innerHTML = trail.map((s, i) => {
     const step = i === 0 ? "" : `<span class="step">${s.via === "down" ? "↓" : s.via === "up" ? "↑" : s.via === "lateral" ? "↔" : "·"}</span>`;
     return `${step}<button data-i="${i}" class="${i === trail.length - 1 ? "here" : ""}">${esc(s.title)}</button>`;
   }).join("") + `<span class="depth">depth ${depthOf(trail)}</span>`;
-  el.querySelectorAll("button").forEach(b => b.onclick = () => {
-    const i = +b.dataset.i;
-    if (i !== trail.length - 1) go(trail[i].id, { fromTrailIndex: i });
-  });
+  el.querySelectorAll("button").forEach(b => b.onclick = () => { location.hash = `#/${view === "graph" ? "g" : "c"}/${trail[+b.dataset.i].id}`; });
 }
 
-function renderNote(n, returningFrom) {
-  const el = document.getElementById("note");
-  const arrival = n.relation ? `<span class="arrival">arrived via <b>${esc(n.relation.label)}</b> ${ARROW[n.relation.direction]}</span>` : "";
+// ---------- concept page ----------
+function workLine(w) {
+  const kind = w.payload?.kind || w.queue;
+  const who = w.state === "leased" ? `an agent (${esc(w.receivedBy || "unknown")}) is working on it` : "waiting for an agent";
+  const what = { expand: "Research", teach: "Teaching", ask: "Question", recall: "Recall quiz" }[kind] || kind;
+  const extra = w.payload?.text ? `: “${esc(w.payload.text)}”` : w.payload?.factIndex != null ? ` (fact ${w.payload.factIndex + 1})` : "";
+  return `<div class="work"><span class="spinner"></span>${what}${extra}: ${who}.</div>`;
+}
+
+function renderNote(returningFrom) {
+  const { concept: c, summaryHtml, explanationHtml, facts } = current;
+  const el = $("note");
+  const work = (c.openWork || []).map(w => ({ ...w, payload: typeof w.payloadJson === "string" ? JSON.parse(w.payloadJson) : w.payload }));
+  const arrival = current.arrival?.rel ? `<span class="arrival">arrived via <b>${esc(current.arrival.rel.label)}</b> ${ARROW[current.arrival.rel.direction]}</span>` : "";
   const ret = returningFrom ? `<div class="return">Back from <b>${esc(returningFrom.title)}</b>. Re-read this with that in mind.</div>` : "";
-  if (n.status === "stub") {
-    el.innerHTML = `${ret}${arrival}<h1>${esc(n.title)}</h1><p class="gloss">${esc(n.gloss)}</p>
-      <div class="stubbox"><b>Not researched yet.</b> In the full system a researcher would be expanding this concept now.
-      <div class="shimmer"></div><div class="shimmer" style="width:80%"></div><div class="shimmer" style="width:60%"></div></div>`;
-    return;
+  const expanding = work.some(w => w.payload.kind === "expand");
+  const known = (state.known || []).includes(c.id);
+
+  let html = `${ret}${arrival}<div class="title-row"><h1>${esc(c.title)}</h1>${statusPill(c.status)}</div>
+    <p class="gloss">${esc(c.gloss)}</p>`;
+
+  if (c.status === "stub") {
+    html += `<div class="banner info">Not researched yet.</div>`;
+    if (expanding) html += `<div class="shimmer"></div><div class="shimmer" style="width:80%"></div><div class="shimmer" style="width:60%"></div>`;
   }
-  el.innerHTML = `${ret}${arrival}<h1>${esc(n.title)}</h1><p class="gloss">${esc(n.gloss)}</p>
-    <h2>Summary</h2>${n.summaryHtml}<h2>Detail</h2>${n.detailHtml}`;
+  if (c.status === "unverified") html += `<div class="banner warn"><b>Unverified.</b> This text was imported and is not backed by cited facts. Treat it as a lead, not proof.</div>`;
+
+  html += `<div class="actions">`;
+  if (c.status === "stub" || c.status === "unverified")
+    html += `<button class="btn primary" data-req="expand" ${expanding ? "disabled" : ""}>${expanding ? "Research requested" : "Research this"}</button>`;
+  if (c.status !== "stub") html += `<button class="btn" data-req="recall">Test me</button>`;
+  html += `<button class="btn" id="knownBtn">${known ? "Marked as known ✓" : "I know this"}</button></div>`;
+  html += work.map(workLine).join("");
+
+  if (summaryHtml) html += `<h2>Summary</h2>${summaryHtml}`;
+  if (explanationHtml) html += `<h2>Explanation</h2>${explanationHtml}`;
+
+  if (facts.length) {
+    html += `<h2>Facts</h2><ul class="facts">${facts.map(f => `<li>
+      <div class="ftext ${f.verified ? "" : "unverified-fact"}">${f.html}${f.evidence.map((e, i) =>
+        `<sup class="cite ${e.stale ? "stale" : ""}" data-fact="${f.index}" data-ev="${i}">[${esc(e.id)}]</sup>`).join("")}
+        ${f.verified ? "" : `<div class="label" style="font-size:12px">evidence is stale or below this source's required trust</div>`}</div>
+      <button class="btn small" data-req="teach" data-fact="${f.index}" title="Ask an agent to teach this fact">Teach me</button></li>`).join("")}</ul>`;
+  }
+
+  if (c.status !== "stub") html += `<h2>Ask</h2><div class="ask"><input id="askInput" placeholder="Ask a question about ${esc(c.title)}"><button class="btn" id="askBtn">Ask</button></div>`;
+  el.innerHTML = html;
+
+  el.querySelectorAll("[data-req]").forEach(b => b.onclick = () =>
+    request(b.dataset.req, { factIndex: b.dataset.fact != null ? +b.dataset.fact : null }));
+  $("knownBtn").onclick = async () => {
+    await api("/api/learner/known", { method: "POST", body: { conceptId: c.id, known: !known } });
+    await refreshLearner(); renderNote();
+  };
+  if ($("askBtn")) {
+    const send = () => { const t = $("askInput").value.trim(); if (t) request("ask", { text: t }); };
+    $("askBtn").onclick = send;
+    $("askInput").onkeydown = e => { if (e.key === "Enter") send(); };
+  }
 }
 
-function renderSide(n) {
+async function request(kind, extra = {}) {
+  try {
+    await api(`/api/concepts/${encodeURIComponent(current.concept.id)}/requests`, { method: "POST", body: { kind, ...extra } });
+    toast({ expand: "Research requested", teach: "Teaching requested", ask: "Question sent", recall: "Recall quiz requested" }[kind] + ". Waiting for an agent.");
+    await refreshCurrent();
+  } catch (e) { toast(e.data?.message || e.message); }
+}
+
+function renderSide() {
   const groups = { down: [], lateral: [], up: [] };
-  for (const nb of n.neighbors) groups[nb.direction].push(nb);
+  for (const nb of current.concept.neighbors) groups[nb.direction].push(nb);
   const titles = { down: "Deeper ↓", lateral: "Sideways ↔", up: "Up ↑" };
-  document.getElementById("side").innerHTML = ["down", "lateral", "up"].map(d => `
+  $("side").innerHTML = DIR_ORDER.map(d => `
     <section><h3 class="${d}">${titles[d]}</h3>
       ${groups[d].length ? `<ul>${groups[d].map(nb => `<li>
-        <a class="wl${nb.status === "stub" ? " stub" : ""}" data-id="${esc(nb.id)}" href="#/note/${esc(nb.id)}">${esc(nb.title)}</a>
-        <span class="label">${esc(nb.label)}${nb.status === "stub" ? " · stub" : ""}</span></li>`).join("")}</ul>`
+        <a class="wl${nb.status === "stub" ? " stub" : ""}" data-id="${esc(nb.id)}" href="#/c/${esc(nb.id)}">${esc(nb.title)}</a>
+        <span class="label">${esc(nb.label)} · ${nb.status}${nb.legacy ? ` · <span class="legacy">unverified edge</span>` : ""}</span></li>`).join("")}</ul>`
       : `<div class="empty">${d === "down" ? "Nothing deeper yet." : "None."}</div>`}
     </section>`).join("");
 }
 
+async function refreshLearner() {
+  if (!state?.store) return;
+  try { const l = await api("/api/learner"); state.known = l.known; } catch {}
+}
+
+async function refreshCurrent() {
+  invalidate();
+  try { state = { ...state, ...(await api("/api/state")) }; renderHealth(); } catch {}
+  await refreshLearner();
+  if (current) await go(current.concept.id, { refresh: true });
+}
+
+// ---------- graph ----------
+const NODE_W = 160, NODE_H = 44, COL = 190, ROW = 110;
+
+async function renderGraph() {
+  if (!current) return;
+  document.querySelectorAll("[data-hops]").forEach(b => b.classList.toggle("primary", +b.dataset.hops === hops));
+  const g = await api(`/api/graph/${encodeURIComponent(current.concept.id)}?hops=${hops}`);
+  const open = new Set(((await api("/api/queue").catch(() => ({ open: [] }))).open || [])
+    .map(m => { try { return JSON.parse(m.payloadJson).conceptId; } catch { return null; } }));
+  const pos = layout(g);
+  const xs = [...pos.values()].map(p => p.x), ys = [...pos.values()].map(p => p.y);
+  const minX = Math.min(...xs) - NODE_W / 2 - 110, maxX = Math.max(...xs) + NODE_W, minY = Math.min(...ys) - NODE_H - 30, maxY = Math.max(...ys) + NODE_H + 10;
+  const w = Math.max(maxX - minX, 600), h = Math.max(maxY - minY, 300);
+  const svg = $("graph");
+  svg.setAttribute("viewBox", `${minX} ${minY} ${w} ${h}`);
+  svg.setAttribute("width", w); svg.setAttribute("height", h);
+
+  const rows = [...new Set([...pos.values()].map(p => p.row))].sort((a, b) => a - b);
+  let out = `<defs>
+    <marker id="arrow-down" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--down)"/></marker>
+    <marker id="arrow-lateral" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--lateral)"/></marker></defs>`;
+  for (const r of rows) {
+    const label = r === 0 ? "THIS LEVEL" : r < 0 ? `UP ${-r}` : `DEEPER ${r}`;
+    out += `<text class="lane" x="${minX + 10}" y="${r * ROW + 4}">${label}</text>`;
+  }
+  for (const e of g.edges) {
+    const a = pos.get(e.source), b = pos.get(e.target);
+    if (!a || !b) continue;
+    let d;
+    if (a.row === b.row) {
+      const dir = b.x > a.x ? 1 : -1;
+      d = `M${a.x + dir * NODE_W / 2},${a.y} L${b.x - dir * NODE_W / 2},${b.y}`;
+    } else {
+      const down = b.y > a.y ? 1 : -1;
+      const y1 = a.y + down * NODE_H / 2, y2 = b.y - down * NODE_H / 2, my = (y1 + y2) / 2;
+      d = `M${a.x},${y1} C${a.x},${my} ${b.x},${my} ${b.x},${y2}`;
+    }
+    out += `<path class="edge ${e.direction}${e.legacy ? " legacy" : ""}" d="${d}" marker-end="url(#arrow-${e.direction})"><title>${esc(e.source)} ${esc(e.type)} ${esc(e.target)}${e.legacy ? " (unverified)" : ""}</title></path>`;
+  }
+  for (const n of g.nodes) {
+    const p = pos.get(n.id);
+    const title = n.title.length > 22 ? n.title.slice(0, 21) + "…" : n.title;
+    out += `<g class="node ${n.status}${n.id === g.focus ? " focus" : ""}" data-id="${esc(n.id)}" transform="translate(${p.x - NODE_W / 2},${p.y - NODE_H / 2})">
+      <rect width="${NODE_W}" height="${NODE_H}" rx="8"/>
+      <text x="${NODE_W / 2}" y="19" text-anchor="middle">${esc(title)}</text>
+      <text class="sub" x="${NODE_W / 2}" y="34" text-anchor="middle">${n.status}</text>
+      ${open.has(n.id) ? `<circle class="work-dot" cx="${NODE_W - 8}" cy="8" r="4"><animate attributeName="opacity" values="1;.2;1" dur="1.2s" repeatCount="indefinite"/></circle>` : ""}
+    </g>`;
+  }
+  svg.innerHTML = out;
+  svg.querySelectorAll(".node").forEach(el => el.onclick = () => { location.hash = `#/g/${el.dataset.id}`; });
+}
+
+// Rows come from direction relative to the focus: up is above, down below, sideways on the same row.
+function layout(g) {
+  const adj = new Map(g.nodes.map(n => [n.id, []]));
+  for (const e of g.edges) {
+    if (!adj.has(e.source) || !adj.has(e.target)) continue;
+    const dy = e.direction === "down" ? 1 : 0;
+    adj.get(e.source).push({ id: e.target, dy });
+    adj.get(e.target).push({ id: e.source, dy: -dy });
+  }
+  const place = new Map([[g.focus, { row: 0, hint: 0, order: 0 }]]);
+  const queue = [g.focus];
+  let order = 1;
+  while (queue.length) {
+    const id = queue.shift();
+    const p = place.get(id);
+    let side = 1, lateral = 0;
+    const kids = adj.get(id) || [];
+    const vertical = kids.filter(k => k.dy !== 0 && !place.has(k.id));
+    vertical.forEach((k, i) => {
+      place.set(k.id, { row: p.row + k.dy, hint: p.hint + (i - (vertical.length - 1) / 2) * 0.6, order: order++ });
+      queue.push(k.id);
+    });
+    for (const k of kids) {
+      if (place.has(k.id)) continue;
+      lateral++;
+      place.set(k.id, { row: p.row, hint: p.hint + side * Math.ceil(lateral / 2) * 1.1, order: order++ });
+      side = -side;
+      queue.push(k.id);
+    }
+  }
+  // BFS rows can disagree with edges reached by other paths. Relax until every down edge descends:
+  // above the focus move the source up, below it move the target down; the focus stays on row 0.
+  const downEdges = g.edges.filter(e => e.direction === "down" && place.has(e.source) && place.has(e.target));
+  for (let pass = 0; pass < 50; pass++) {
+    let changed = false;
+    for (const e of downEdges) {
+      const s = place.get(e.source), t = place.get(e.target);
+      if (t.row > s.row) continue;
+      if (e.source !== g.focus && (t.row < 0 || e.target === g.focus)) s.row = t.row - 1;
+      else if (e.target !== g.focus) t.row = s.row + 1;
+      else continue;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  const byRow = new Map();
+  for (const [id, p] of place) { if (!byRow.has(p.row)) byRow.set(p.row, []); byRow.get(p.row).push({ id, ...p }); }
+  const pos = new Map();
+  for (const [row, items] of byRow) {
+    items.sort((a, b) => a.hint - b.hint || a.order - b.order);
+    const xs = items.map(it => it.hint * COL);
+    for (let i = 1; i < xs.length; i++) xs[i] = Math.max(xs[i], xs[i - 1] + COL);   // push apart to avoid overlaps
+    // Pushing apart drifts a row rightward. Re-center it: the focus row on the focus, other rows on their mean hint.
+    const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+    const shift = row === 0
+      ? -xs[items.findIndex(it => it.id === g.focus)]
+      : mean(items.map(it => it.hint * COL)) - mean(xs);
+    items.forEach((it, i) => pos.set(it.id, { x: xs[i] + shift, y: row * ROW, row }));
+  }
+  return pos;
+}
+
+document.querySelectorAll("[data-hops]").forEach(b => b.onclick = () => { hops = +b.dataset.hops; renderGraph(); });
+
+// ---------- search ----------
+let searchTimer;
+$("search").oninput = () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const q = $("search").value.trim(), box = $("results");
+    if (!q) return box.classList.add("hidden");
+    const items = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    const r = $("search").getBoundingClientRect();
+    box.style.left = r.left + "px"; box.style.top = (r.bottom + 4 + window.scrollY) + "px";
+    box.innerHTML = items.length ? items.map(i => `<a href="#/c/${esc(i.id)}">${esc(i.title)} <span style="color:var(--muted);font-size:12px">${i.status}</span></a>`).join("") : `<a>No matches</a>`;
+    box.classList.remove("hidden");
+  }, 200);
+};
+document.addEventListener("click", e => { if (!e.target.closest("#results, #search")) $("results").classList.add("hidden"); });
+
 // ---------- nested tooltips ----------
-// tips[k] is the tooltip at level k+1. A link inside level k opens level k+1.
 const tips = [];
 let openTimer = null, trimTimer = null;
+function levelOf(node) { const t = node.closest?.(".tip"); return t ? +t.dataset.level : 0; }
+function contextId(node) { const t = node.closest?.(".tip"); return t ? t.dataset.id : current?.concept.id; }
+function closeTips(keep) { while (tips.length > keep) tips.pop().remove(); }
 
-function levelOf(node) {
-  const t = node.closest?.(".tip");
-  return t ? +t.dataset.level : 0;
-}
-
-function contextNoteId(node) {
-  const t = node.closest?.(".tip");
-  return t ? t.dataset.id : current?.id;
-}
-
-function closeTips(keep) {
-  while (tips.length > keep) tips.pop().remove();
-}
-
-async function openTip(link) {
-  const level = levelOf(link);
-  const id = link.dataset.id;
-  const from = contextNoteId(link);
-  const n = await fetchNote(id, from);
-  if (!n) return;
+function makeTip(level, id, html, anchor) {
   closeTips(level);
   const tip = document.createElement("div");
   tip.className = `tip level-${level + 1}`;
   tip.dataset.level = level + 1;
   tip.dataset.id = id;
-  const rel = n.relation;
-  tip.innerHTML = `<div><span class="tt">${esc(n.title)}</span>${badge(rel?.direction)}${n.status === "stub" ? ' <span class="badge stubb">stub</span>' : ""}</div>
-    ${rel ? `<div class="hint" style="border:0;margin:2px 0 0;padding:0">${esc(rel.label)} (from ${esc(from)})</div>` : ""}
-    <div class="tg">${esc(n.gloss)}</div>
-    ${n.status === "stub" ? "" : `<div class="ts">${n.summaryHtml}</div>`}
-    <div class="hint">Hover links to go further · click to dive in · Esc closes</div>`;
+  tip.innerHTML = html;
   document.body.appendChild(tip);
-  place(tip, link.getBoundingClientRect());
+  const r = anchor.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, pad = 8;
+  tip.style.left = Math.min(Math.max(pad, r.left), innerWidth - w - pad) + "px";
+  let top = r.bottom + 6;
+  if (top + h > innerHeight - pad) top = Math.max(pad, r.top - h - 6);
+  tip.style.top = top + "px";
   tips.push(tip);
 }
 
-function place(tip, r) {
-  const w = tip.offsetWidth, h = tip.offsetHeight, pad = 8;
-  let left = Math.min(Math.max(pad, r.left), window.innerWidth - w - pad);
-  let top = r.bottom + 6;
-  if (top + h > window.innerHeight - pad) top = Math.max(pad, r.top - h - 6);
-  tip.style.left = left + "px";
-  tip.style.top = top + "px";
+async function openConceptTip(link) {
+  const level = levelOf(link), id = link.dataset.id, from = contextId(link);
+  const [d, rel] = await Promise.all([getConcept(id), from && from !== id ? getRelation(from, id) : null]);
+  const c = d.concept;
+  makeTip(level, id, `<div><span class="tt">${esc(c.title)}</span>${badge(rel?.direction)} ${statusPill(c.status)}</div>
+    ${rel ? `<div class="meta">${esc(rel.label)} (from ${esc(from)})${rel.legacy ? " · unverified edge" : ""}</div>` : ""}
+    <div class="tg">${esc(c.gloss)}</div>
+    ${d.summaryHtml ? `<div class="ts">${d.summaryHtml}</div>` : `<div class="meta">Not researched yet.</div>`}
+    <div class="hint">Hover links to go further · click to dive in · Esc closes</div>`, link);
+}
+
+function openCiteTip(sup) {
+  const level = levelOf(sup);
+  const f = current.facts.find(x => x.index === +sup.dataset.fact);
+  const e = f.evidence[+sup.dataset.ev];
+  const link = /^https?:/.test(e.locator) ? `<a href="${esc(e.locator)}" target="_blank" rel="noopener">${esc(e.locator)}</a>` : esc(e.locator);
+  makeTip(level, current.concept.id, `<div><span class="tt">${esc(e.id)}</span> <span class="status ${e.stale ? "unverified" : "complete"}">${e.stale ? "stale" : e.trust}</span></div>
+    <blockquote>“${esc(e.quote)}”</blockquote>
+    <div class="meta">Source: ${esc(e.source)} (${esc(e.sourceSystem)})<br>${link}<br>
+    Captured by ${esc(e.capturedBy)}${e.reconfirmedBy ? `, reconfirmed by ${esc(e.reconfirmedBy)}` : ""} · ${new Date(e.retrievedAt).toLocaleDateString()}
+    ${e.meetsMinTrust ? "" : "<br><b>Below this source's required trust level.</b>"}</div>`, sup);
 }
 
 document.addEventListener("mouseover", e => {
-  const link = e.target.closest?.("a.wl");
+  const link = e.target.closest?.("a.wl, sup.cite");
   const level = levelOf(e.target);
   clearTimeout(openTimer);
   if (link) {
-    const already = tips[level] && tips[level].dataset.id === link.dataset.id;
-    if (!already) openTimer = setTimeout(() => openTip(link), 220);
+    const key = link.dataset.id || `cite-${link.dataset.fact}-${link.dataset.ev}`;
+    if (!(tips[level] && tips[level].dataset.key === key))
+      openTimer = setTimeout(async () => {
+        if (link.matches("sup.cite")) openCiteTip(link); else await openConceptTip(link);
+        if (tips[level]) tips[level].dataset.key = key;
+      }, 220);
   }
-  // Keep every tooltip up to the one under the pointer (plus the one a hovered link owns).
   const keep = link ? level + 1 : level;
   clearTimeout(trimTimer);
   trimTimer = setTimeout(() => closeTips(keep), 380);
@@ -240,30 +680,59 @@ document.addEventListener("mouseover", e => {
 
 document.addEventListener("click", e => {
   const link = e.target.closest?.("a.wl");
-  if (!link) return;
+  if (!link || !link.dataset.id) return;
   e.preventDefault();
-  go(link.dataset.id);
-  history.pushState(null, "", `#/note/${link.dataset.id}`);
+  closeTips(0);
+  location.hash = `#/${view === "graph" ? "g" : "c"}/${link.dataset.id}`;
 });
-
-document.addEventListener("keydown", e => { if (e.key === "Escape") closeTips(0); });
-window.addEventListener("popstate", () => { const id = idFromHash(); if (id) go(id); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeTips(0); $("agents").classList.add("hidden"); } });
 window.addEventListener("scroll", () => closeTips(0), { passive: true });
 
-function idFromHash() { const m = location.hash.match(/^#\/note\/(.+)$/); return m ? decodeURIComponent(m[1]) : null; }
+// ---------- agents panel ----------
+async function toggleAgents() {
+  const panel = $("agents");
+  if (!panel.classList.contains("hidden")) return panel.classList.add("hidden");
+  await renderAgents();
+  panel.classList.remove("hidden");
+}
 
-// ---------- boot ----------
-(async () => {
-  project = await fetch("/api/project").then(r => r.json());
-  document.getElementById("project").textContent = project.name;
-  const h = document.getElementById("health");
-  h.textContent = `${project.noteCount} notes · ${project.errors} errors · ${project.warnings} warnings`;
-  if (project.errors) h.classList.add("bad");
-  try { trail = JSON.parse(sessionStorage.getItem("blearn.trail") || "[]"); } catch { trail = []; }
-  const start = idFromHash() || project.root;
-  if (trail.length && trail[trail.length - 1].id === start) trail.pop();
-  go(start);
-})();
+async function renderAgents() {
+  const s = state.store, exe = state.exe;
+  const q = await api("/api/queue");
+  const instruction = `Run \`${exe} --store "${s.path}" agent brief\` and follow it. Process b-learn work for this store until I tell you to stop.`;
+  const row = m => { const p = JSON.parse(m.payloadJson); return `<tr><td>${esc(m.queue)}</td><td>${esc(p.conceptId || "")}${p.text ? `: ${esc(p.text)}` : ""}</td>
+    <td>${m.state === "leased" ? `claimed by ${esc(m.receivedBy)}` : m.state}</td><td>${m.attempts}</td></tr>`; };
+  $("agents").innerHTML = `<div class="row" style="justify-content:space-between"><h2>Agents</h2><button class="btn" onclick="document.getElementById('agents').classList.add('hidden')">Close</button></div>
+    <p style="color:var(--muted);font-size:14px">Bring your own harness. Paste this into any agent that can run shell commands (Claude Code, Codex, and others). It reads the brief, then waits for work from this page.</p>
+    <pre id="instr">${esc(instruction)}</pre><button class="btn" id="copyInstr">Copy</button>
+    <h3>Waiting and in progress (${q.open.length})</h3>
+    ${q.open.length ? `<table><tr><th>Kind</th><th>Concept</th><th>State</th><th>Tries</th></tr>${q.open.map(row).join("")}</table>` : `<p style="color:var(--muted);font-size:14px">Nothing queued. Requests you make on concept pages appear here.</p>`}
+    ${q.dead.length ? `<h3>Failed (${q.dead.length})</h3><table><tr><th>Kind</th><th>Concept</th><th>Error</th><th>Tries</th></tr>${q.dead.map(m => { const p = JSON.parse(m.payloadJson); return `<tr><td>${esc(m.queue)}</td><td>${esc(p.conceptId || "")}</td><td>${esc(m.lastError || "")}</td><td>${m.attempts}</td></tr>`; }).join("")}</table>` : ""}
+    ${s.sources.length ? `<h3>Sources of truth</h3><ul style="font-size:14px">${s.sources.map(x => `<li><b>${esc(x.name)}</b> (${esc(x.system)}): ${esc(x.scope)}</li>`).join("")}</ul>` : `<div class="banner warn">No sources of truth registered. Agents cannot cite evidence until one is: <code>${esc(exe)} --store "…" source register web --system web --scope "..."</code></div>`}`;
+  $("copyInstr").onclick = () => navigator.clipboard.writeText(instruction).then(() => toast("Copied"));
+}
+
+// ---------- live updates ----------
+let refreshTimer;
+function connectEvents() {
+  const es = new EventSource("/api/events/stream");
+  es.addEventListener("changes", ev => {
+    const events = JSON.parse(ev.data);
+    const interesting = events.filter(e => e.type !== "ConceptVisited");
+    if (!interesting.length) return;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      const types = [...new Set(interesting.map(e => e.type))];
+      toast(`Updated: ${types.slice(0, 3).join(", ")}${types.length > 3 ? "…" : ""}`);
+      await refreshCurrent();
+      if (!$("agents").classList.contains("hidden")) renderAgents();
+    }, 300);
+  });
+  es.addEventListener("store", () => boot());
+  es.onerror = () => { es.close(); setTimeout(connectEvents, 2000); };
+}
+
+boot().then(refreshLearner).then(connectEvents);
 </script>
 </body>
 </html>
