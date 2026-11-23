@@ -2,7 +2,6 @@
   <Folder Name="/src/">
     <Project Path="src/BLearn.Application/BLearn.Application.csproj" />
     <Project Path="src/BLearn.Cli/BLearn.Cli.csproj" />
-    <Project Path="src/BLearn.Core/BLearn.Core.csproj" />
     <Project Path="src/BLearn.Domain/BLearn.Domain.csproj" />
     <Project Path="src/BLearn.Infrastructure.Fetching/BLearn.Infrastructure.Fetching.csproj" />
     <Project Path="src/BLearn.Infrastructure.Markdown/BLearn.Infrastructure.Markdown.csproj" />
@@ -10,7 +9,6 @@
     <Project Path="src/BLearn.Web/BLearn.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/BLearn.Core.Tests/BLearn.Core.Tests.csproj" />
     <Project Path="tests/BLearn.Domain.Tests/BLearn.Domain.Tests.csproj" />
     <Project Path="tests/BLearn.Integration.Tests/BLearn.Integration.Tests.csproj" />
   </Folder>

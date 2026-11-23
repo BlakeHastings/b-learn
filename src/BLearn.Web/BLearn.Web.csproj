@@ -1,17 +1,28 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\BLearn.Application\BLearn.Application.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Markdig" Version="1.6.0" />
-  </ItemGroup>
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\index.html" LogicalName="BLearn.Web.index.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.6.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BLearn.Application\BLearn.Application.csproj" />
+    <ProjectReference Include="..\BLearn.Infrastructure.Sqlite\BLearn.Infrastructure.Sqlite.csproj" />
+    <ProjectReference Include="..\BLearn.Infrastructure.Fetching\BLearn.Infrastructure.Fetching.csproj" />
+  </ItemGroup>
 
 </Project>

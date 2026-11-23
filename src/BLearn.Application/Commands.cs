@@ -196,7 +196,18 @@ public sealed class BLearnCommands(IStore store, IClock clock, ISourceFetcher fe
         Execute(uow =>
         {
             foreach (var n in notes)
+            {
+                // A store's root is created with the store; adopt it when the import contains the same id.
+                if (uow.Concepts.Find(n.Id) is { Status: ConceptStatus.Stub } existing)
+                {
+                    if (existing.Title != n.Title) existing.Rename(n.Title, uow.Reader);
+                    if (existing.Gloss != n.Gloss) existing.ReviseGloss(n.Gloss);
+                    foreach (var alias in n.Aliases) existing.AddAlias(alias, uow.Reader);
+                    uow.Concepts.Save(existing);
+                    continue;
+                }
                 uow.Concepts.Save(Concept.CreateStub(n.Id, n.Title, n.Gloss, n.Aliases, uow.Reader));
+            }
 
             var graph = uow.Graph.Load();
             foreach (var n in notes)
