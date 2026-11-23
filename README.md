@@ -46,3 +46,7 @@ Commands are `blearn <resource> <verb>` with the HTTP verbs `get`, `list`, `post
 ```sh
 dotnet test
 ```
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).
