@@ -24,11 +24,13 @@ public sealed class Learner(IGraphReader graph) : AggregateRoot
         Raise(new ConceptUnmarkedKnown(conceptId));
     }
 
-    public void AnswerRecall(string conceptId, string answer, string? feedback)
+    /// <summary>Records the learner's answer to a quiz question, with their self-assessment when given.</summary>
+    public void AnswerRecall(string conceptId, string answer, string? feedback, int? questionIndex = null, bool? correct = null)
     {
         Require(conceptId);
         if (string.IsNullOrWhiteSpace(answer)) throw new DomainViolation("answer-required", "An answer is required.");
-        Raise(new RecallAnswered(conceptId, answer.Trim(), feedback?.Trim()));
+        if (questionIndex is < 0) throw new DomainViolation("question-index", "Question indexes start at 0.");
+        Raise(new RecallAnswered(conceptId, questionIndex, correct, answer.Trim(), feedback?.Trim()));
     }
 
     private void Require(string id)

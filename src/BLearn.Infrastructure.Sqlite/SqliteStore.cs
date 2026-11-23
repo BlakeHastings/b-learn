@@ -36,6 +36,7 @@ public sealed class SqliteStore(string path, IClock clock) : IStore
     public IQueries Queries { get; } = new SqliteQueries(path);
     public IEventLog Events { get; } = new SqliteEventLog(path);
     public IWorkQueue Queue { get; } = new SqliteWorkQueue(path, clock);
+    public IAgentPresence Agents { get; } = new SqliteAgentPresence(path, clock);
 
     public void Dispose() { }
 }

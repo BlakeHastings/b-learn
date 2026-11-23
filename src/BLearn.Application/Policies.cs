@@ -15,7 +15,8 @@ public static class Policies
         public const string Teach = "teach";
         public const string Ask = "ask";
         public const string Recall = "recall";
-        public static readonly string[] All = [Expand, Teach, Ask, Recall];
+        public const string Check = "check";
+        public static readonly string[] All = [Expand, Teach, Ask, Recall, Check];
     }
 
     public static void React(IReadOnlyList<DomainEvent> events, IUnitOfWork uow)
@@ -32,18 +33,27 @@ public static class Policies
                         new { kind = "teach", conceptId = r.ConceptId, factIndex = r.FactIndex }));
                     break;
                 case QuestionAsked r:
-                    uow.Enqueue(Work(Queues.Ask, $"ask:{r.QuestionId}",
-                        new { kind = "ask", conceptId = r.ConceptId, questionId = r.QuestionId, text = r.Text }));
+                    uow.Enqueue(Work(Queues.Ask, $"ask:{r.ConversationId}:{r.MessageOrdinal}",
+                        new { kind = "ask", conceptId = r.ConceptId, conversationId = r.ConversationId, text = r.Text, quote = r.Quote, factIndex = r.FactIndex },
+                        priority: 10));
                     break;
                 case RecallRequested r:
                     uow.Enqueue(Work(Queues.Recall, $"recall:{r.ConceptId}", new { kind = "recall", conceptId = r.ConceptId }));
+                    break;
+                // New facts or teaching need an independent review. One open check per concept covers both.
+                case FactsReplaced r:
+                    uow.Enqueue(Work(Queues.Check, $"check:{r.ConceptId}", new { kind = "check", conceptId = r.ConceptId }, priority: -10));
+                    break;
+                case TeachingReplaced { Legacy: false } r:
+                    uow.Enqueue(Work(Queues.Check, $"check:{r.ConceptId}", new { kind = "check", conceptId = r.ConceptId }, priority: -10));
                     break;
             }
         }
     }
 
-    private static WorkItem Work(string queue, string key, object payload) =>
-        new(queue, key, JsonSerializer.Serialize(payload, Json.Options));
+    /// <summary>Questions jump the line (a learner is waiting); checks wait behind other work.</summary>
+    private static WorkItem Work(string queue, string key, object payload, int priority = 0) =>
+        new(queue, key, JsonSerializer.Serialize(payload, Json.Options), priority);
 }
 
 public static class Json

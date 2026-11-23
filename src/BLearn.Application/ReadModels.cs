@@ -13,17 +13,37 @@ public sealed record EvidenceView(
     bool MeetsMinTrust, string CapturedBy, string? ReconfirmedBy, DateTimeOffset RetrievedAt, string SnapshotHash);
 
 /// <param name="Verified">True when at least one cited piece of evidence is current and meets its source's minimum trust.</param>
-public sealed record FactView(int Index, string Text, IReadOnlyList<EvidenceView> Evidence, bool Verified);
+/// <param name="Check">The latest checker verdict on this fact, or null when unchecked.</param>
+public sealed record FactView(int Index, string Text, IReadOnlyList<EvidenceView> Evidence, bool Verified, FactCheckView? Check);
 
-/// <summary>A neighbor as seen from a concept. Direction and label are from the viewing concept's side.</summary>
+public sealed record FactCheckView(string Verdict, string? Note);
+
+public sealed record TeachingFlagView(string Excerpt, string Note);
+
+public sealed record CheckView(string Session, DateTimeOffset At, IReadOnlyList<TeachingFlagView> TeachingFlags);
+
+public sealed record RecallQuestionView(int Index, string Prompt, string Answer, IReadOnlyList<int> FactIndexes);
+
+/// <summary>
+/// A neighbor as seen from a concept. Direction and label are from the viewing concept's side;
+/// <see cref="Source"/> and <see cref="Target"/> are the edge as stored, which edge commands take.
+/// </summary>
 public sealed record NeighborView(
     string Id, string Title, string Gloss, string Status, string Direction, string Label, string EdgeType,
-    bool Legacy, IReadOnlyList<string> EvidenceIds);
+    bool Legacy, IReadOnlyList<string> EvidenceIds, string Source, string Target);
 
 public sealed record ConceptDetail(
     string Id, string Title, string Gloss, string Status, IReadOnlyList<string> Aliases,
     string? Summary, string? Explanation, bool TeachingLegacy, IReadOnlyList<FactView> Facts,
-    IReadOnlyList<NeighborView> Neighbors, IReadOnlyList<QueueMessage> OpenWork);
+    IReadOnlyList<NeighborView> Neighbors, IReadOnlyList<QueueMessage> OpenWork,
+    CheckView? Check, IReadOnlyList<RecallQuestionView> RecallQuestions);
+
+public sealed record MessageView(int Ordinal, string Role, string Text, string? Session, DateTimeOffset At);
+
+/// <param name="AwaitingReply">True when the latest question has no agent reply yet.</param>
+public sealed record ConversationView(
+    string Id, string ConceptId, string ConceptTitle, string? Quote, int? FactIndex, string? FactText,
+    DateTimeOffset StartedAt, bool AwaitingReply, IReadOnlyList<MessageView> Messages);
 
 public sealed record GraphNode(string Id, string Title, string Status, int Hops);
 
@@ -52,4 +72,11 @@ public interface IQueries
     Snapshot? GetSnapshot(string hash);
     IReadOnlyList<VisitView> Journey(int limit = 100);
     IReadOnlyList<string> Known();
+    ConversationView? GetConversation(string id);
+
+    /// <summary>Every title and alias in the store with the concept it names, for linking mentions.</summary>
+    IReadOnlyList<(string Name, string Id)> ConceptNames();
+
+    /// <summary>Conversations, newest first, optionally for one concept.</summary>
+    IReadOnlyList<ConversationView> ListConversations(string? conceptId = null, int limit = 50);
 }

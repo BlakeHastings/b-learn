@@ -6,7 +6,8 @@ public sealed class UsageException(string message) : Exception(message);
 /// <summary>Minimal parser: positionals plus <c>--name value</c> options and boolean <c>--flag</c>s.</summary>
 public sealed class CliArgs
 {
-    private static readonly HashSet<string> Booleans = ["wait", "private", "all", "include-done", "snapshot", "no-open", "help"];
+    /// <summary>Options that never take a value.</summary>
+    private static readonly HashSet<string> Booleans = ["wait", "private", "all", "no-open", "help", "release", "recent", "waiting"];
 
     private readonly Dictionary<string, List<string>> _options = new();
     private readonly HashSet<string> _flags = [];
@@ -26,7 +27,9 @@ public sealed class CliArgs
                 var eq = name.IndexOf('=');
                 if (eq > 0) (name, inline) = (name[..eq], name[(eq + 1)..]);
                 if (Booleans.Contains(name) && inline is null) { _flags.Add(name); continue; }
-                var value = inline ?? (i + 1 < args.Count ? args[++i] : throw new UsageException($"--{name} needs a value."));
+                // An option followed by another option (or nothing) is a flag; EnsureAllUsed rejects it if the command expected a value or does not know it.
+                if (inline is null && (i + 1 >= args.Count || IsOption(args[i + 1]))) { _flags.Add(name); continue; }
+                var value = inline ?? args[++i];
                 if (!_options.TryGetValue(name, out var list)) _options[name] = list = [];
                 list.Add(value);
             }
@@ -36,6 +39,8 @@ public sealed class CliArgs
             }
         }
     }
+
+    private static bool IsOption(string a) => a.StartsWith("--") && a.Length > 2;
 
     public string At(int index, string what) =>
         index < Positional.Count ? Positional[index] : throw new UsageException($"Missing {what}.");
@@ -51,6 +56,7 @@ public sealed class CliArgs
     public string? Opt(string name)
     {
         _used.Add(name);
+        if (_flags.Contains(name)) throw new UsageException($"--{name} needs a value.");
         return _options.TryGetValue(name, out var v) ? v[^1] : null;
     }
 

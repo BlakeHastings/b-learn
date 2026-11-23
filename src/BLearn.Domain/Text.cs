@@ -33,6 +33,49 @@ public static partial class Wikilinks
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Turns the first plain mention of each named concept into a <c>[[id|mention]]</c> link. Longer names
+    /// win, matching is case-insensitive on whole words, and existing links, inline code and fenced code
+    /// are left alone. Concepts already linked explicitly are not linked again.
+    /// </summary>
+    public static string AutoLink(string markdown, IReadOnlyList<(string Name, string Id)> names)
+    {
+        var linked = Scan(markdown).Select(l => l.Target).ToHashSet();
+        var candidates = names
+            .Where(n => n.Name.Trim().Length >= 2 && !linked.Contains(n.Id))
+            .OrderByDescending(n => n.Name.Length)
+            .ToList();
+        if (candidates.Count == 0) return markdown;
+
+        var pattern = string.Join("|", candidates.Select(n => Regex.Escape(n.Name.Trim())));
+        var mention = new Regex($@"(?<![\w#+.])(?:{pattern})(?![\w#+])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var byName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, id) in candidates) byName.TryAdd(name.Trim(), id);
+
+        var sb = new StringBuilder();
+        foreach (var (line, inFence) in Lines(markdown))
+        {
+            if (sb.Length > 0) sb.Append('\n');
+            if (inFence) { sb.Append(line); continue; }
+            // Split out existing links and inline code so only plain text is scanned.
+            var parts = Protected().Split(line);
+            foreach (var part in parts)
+            {
+                if (Protected().IsMatch(part)) { sb.Append(part); continue; }
+                sb.Append(mention.Replace(part, m =>
+                {
+                    var id = byName[m.Value];
+                    if (!linked.Add(id)) return m.Value;
+                    return $"[[{id}|{m.Value}]]";
+                }));
+            }
+        }
+        return sb.ToString();
+    }
+
+    [GeneratedRegex(@"(\[\[[^\]]*\]\]|`[^`]*`|\[[^\]]*\]\([^)]*\))")]
+    private static partial Regex Protected();
+
     private static WikiLink ToLink(Match m) =>
         new(m.Groups[1].Value.Trim(), m.Groups[2].Success ? m.Groups[2].Value.Trim() : null);
 

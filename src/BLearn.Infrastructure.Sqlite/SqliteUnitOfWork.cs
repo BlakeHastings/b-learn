@@ -31,6 +31,7 @@ internal sealed class SqliteUnitOfWork : IUnitOfWork
         Settings = new SettingsRepository(this);
         Graph = new GraphRepository(this);
         Learner = new LearnerRepository(this);
+        Conversations = new ConversationRepository(this);
         Snapshots = new SnapshotStore(this);
     }
 
@@ -43,6 +44,7 @@ internal sealed class SqliteUnitOfWork : IUnitOfWork
     public IStoreSettingsRepository Settings { get; }
     public IGraphRepository Graph { get; }
     public ILearnerRepository Learner { get; }
+    public IConversationRepository Conversations { get; }
     public ISnapshotStore Snapshots { get; }
     public IReadOnlyList<DomainEvent> PendingEvents => _pending;
 
@@ -123,6 +125,15 @@ internal sealed class SqliteGraphReader(SqliteConnection c) : IGraphReader
     }
 
     public bool EvidenceExists(string id) => c.Scalar("SELECT 1 FROM evidence WHERE id = @id", ("@id", id)) is not null;
+
+    public string? EvidenceCapturedBy(string id) =>
+        c.Scalar("SELECT captured_by FROM evidence WHERE id = @id", ("@id", id)) as string;
+
+    public bool EvidenceCited(string id) => c.Scalar("""
+        SELECT 1 FROM fact_evidence WHERE evidence_id = @id
+        UNION ALL SELECT 1 FROM edge_evidence WHERE evidence_id = @id
+        LIMIT 1
+        """, ("@id", id)) is not null;
 }
 
 internal sealed class ConceptRepository(SqliteUnitOfWork uow) : IConceptRepository
@@ -143,7 +154,21 @@ internal sealed class ConceptRepository(SqliteUnitOfWork uow) : IConceptReposito
         var facts = C.Query("SELECT ordinal, text FROM facts WHERE concept_id = @id ORDER BY ordinal",
             r => new Fact(r.GetString(1), evidence[r.GetInt64(0)].ToList()), ("@id", id));
 
-        return Concept.Rehydrate(row.Id, row.Title, row.Gloss, aliases, facts, row.Summary, row.Explanation, row.Legacy, row.Version);
+        var recall = C.Query("SELECT prompt, answer, facts FROM recall_questions WHERE concept_id = @id ORDER BY ordinal",
+            r => new RecallQuestion(r.GetString(0), r.GetString(1), JsonSerializer.Deserialize<List<int>>(r.GetString(2))!), ("@id", id));
+        CheckRecord? check = null;
+        var checkRow = C.Query("SELECT session, at FROM concept_checks WHERE concept_id = @id",
+            r => (Session: r.GetString(0), At: Sql.ParseIso(r.GetString(1))), ("@id", id)).ToList();
+        if (checkRow.Count == 1)
+        {
+            var verdicts = C.Query("SELECT ordinal, verdict, note FROM fact_checks WHERE concept_id = @id ORDER BY ordinal",
+                r => new FactCheck((int)r.GetInt64(0), Enum.Parse<Verdict>(r.GetString(1), ignoreCase: true), r.NullableString(2)), ("@id", id));
+            var flags = C.Query("SELECT excerpt, note FROM teaching_flags WHERE concept_id = @id ORDER BY ordinal",
+                r => new TeachingFlag(r.GetString(0), r.GetString(1)), ("@id", id));
+            check = new CheckRecord(verdicts, flags, checkRow[0].Session, checkRow[0].At);
+        }
+
+        return Concept.Rehydrate(row.Id, row.Title, row.Gloss, aliases, facts, row.Summary, row.Explanation, row.Legacy, row.Version, recall, check);
     }
 
     public void Save(Concept concept)
@@ -187,6 +212,28 @@ internal sealed class ConceptRepository(SqliteUnitOfWork uow) : IConceptReposito
                     C.Exec("INSERT INTO fact_evidence(concept_id, ordinal, evidence_id) VALUES (@id, @o, @e)",
                         ("@id", concept.Id), ("@o", i), ("@e", e));
             }
+
+            C.Exec("DELETE FROM recall_questions WHERE concept_id = @id", ("@id", concept.Id));
+            for (var i = 0; i < concept.RecallQuestions.Count; i++)
+            {
+                var q = concept.RecallQuestions[i];
+                C.Exec("INSERT INTO recall_questions(concept_id, ordinal, prompt, answer, facts) VALUES (@id, @o, @p, @a, @f)",
+                    ("@id", concept.Id), ("@o", i), ("@p", q.Prompt), ("@a", q.Answer), ("@f", JsonSerializer.Serialize(q.FactIndexes)));
+            }
+
+            // fact_checks rows went with the facts (ON DELETE CASCADE); concept_checks cascades to teaching_flags.
+            C.Exec("DELETE FROM concept_checks WHERE concept_id = @id", ("@id", concept.Id));
+            if (concept.Check is { } check)
+            {
+                C.Exec("INSERT INTO concept_checks(concept_id, session, at) VALUES (@id, @s, @at)",
+                    ("@id", concept.Id), ("@s", check.Session), ("@at", Sql.Iso(check.At)));
+                foreach (var v in check.Facts)
+                    C.Exec("INSERT INTO fact_checks(concept_id, ordinal, verdict, note) VALUES (@id, @o, @v, @n)",
+                        ("@id", concept.Id), ("@o", v.FactIndex), ("@v", v.Verdict.ToString().ToLowerInvariant()), ("@n", v.Note));
+                for (var i = 0; i < check.Flags.Count; i++)
+                    C.Exec("INSERT INTO teaching_flags(concept_id, ordinal, excerpt, note) VALUES (@id, @o, @e, @n)",
+                        ("@id", concept.Id), ("@o", i), ("@e", check.Flags[i].Excerpt), ("@n", check.Flags[i].Note));
+            }
             return 0;
         });
         uow.Track(concept);
@@ -224,7 +271,13 @@ internal sealed class EvidenceRepository(SqliteUnitOfWork uow) : IEvidenceReposi
                 ("@t", e.Trust.ToName()), ("@st", e.Stale ? 1 : 0), ("@cb", e.CapturedBy), ("@rb", e.ReconfirmedBy),
                 ("@ra", Sql.Iso(e.RetrievedAt)), ("@v", e.Version),
             ];
-            if (e.Version == 0)
+            if (e.Removed)
+            {
+                // The foreign keys from fact_evidence and edge_evidence still refuse this if a citation slipped through.
+                if (C.Exec("DELETE FROM evidence WHERE id = @id AND version = @v", p) == 0)
+                    throw new ConcurrencyConflict($"Evidence '{e.Id}' changed since it was read. Reload and retry.");
+            }
+            else if (e.Version == 0)
             {
                 C.Exec("""
                     INSERT INTO evidence(id, source, locator, quote, snapshot_hash, trust, stale, captured_by, reconfirmed_by, retrieved_at, version)
@@ -345,8 +398,9 @@ internal sealed class LearnerRepository(SqliteUnitOfWork uow) : ILearnerReposito
                         C.Exec("DELETE FROM learner_known WHERE concept_id = @c", ("@c", u.ConceptId));
                         break;
                     case RecallAnswered a:
-                        C.Exec("INSERT INTO learner_recall(concept_id, answer, feedback, at) VALUES (@c, @a, @f, @at)",
-                            ("@c", a.ConceptId), ("@a", a.Answer), ("@f", a.Feedback), ("@at", at));
+                        C.Exec("INSERT INTO learner_recall(concept_id, answer, feedback, at, question_index, correct) VALUES (@c, @a, @f, @at, @q, @ok)",
+                            ("@c", a.ConceptId), ("@a", a.Answer), ("@f", a.Feedback), ("@at", at),
+                            ("@q", a.QuestionIndex), ("@ok", a.Correct is { } ok ? (ok ? 1 : 0) : null));
                         break;
                 }
             }
@@ -354,6 +408,50 @@ internal sealed class LearnerRepository(SqliteUnitOfWork uow) : ILearnerReposito
         });
         uow.Track(learner);
         learner.MarkPersisted(0);
+    }
+}
+
+internal sealed class ConversationRepository(SqliteUnitOfWork uow) : IConversationRepository
+{
+    private SqliteConnection C => uow.Connection;
+
+    public Conversation? Find(string id)
+    {
+        var row = C.Query("SELECT id, concept_id, quote, fact_index, started_at, version FROM conversations WHERE id = @id",
+            r => (Id: r.GetString(0), Concept: r.GetString(1), Quote: r.NullableString(2), Fact: r.NullableLong(3),
+                At: Sql.ParseIso(r.GetString(4)), Version: r.GetInt64(5)), ("@id", id)).FirstOrDefault();
+        if (row.Id is null) return null;
+        var messages = C.Query("SELECT ordinal, role, text, session, at FROM conversation_messages WHERE conversation_id = @id ORDER BY ordinal",
+            r => new ConversationMessage((int)r.GetInt64(0), r.GetString(1) == "agent" ? MessageRole.Agent : MessageRole.Learner,
+                r.GetString(2), r.NullableString(3), Sql.ParseIso(r.GetString(4))), ("@id", id));
+        return Conversation.Rehydrate(row.Id, row.Concept, row.Quote, row.Fact is { } f ? (int)f : null, row.At, messages, row.Version);
+    }
+
+    public void Save(Conversation c)
+    {
+        if (c.PendingEvents.Count == 0) return;
+        SqliteUnitOfWork.Guard(() =>
+        {
+            if (c.Version == 0)
+            {
+                C.Exec("INSERT INTO conversations(id, concept_id, quote, fact_index, started_at, version) VALUES (@id, @c, @q, @f, @at, 1)",
+                    ("@id", c.Id), ("@c", c.ConceptId), ("@q", c.Quote), ("@f", c.FactIndex), ("@at", Sql.Iso(c.StartedAt)));
+            }
+            else if (C.Exec("UPDATE conversations SET version = version + 1 WHERE id = @id AND version = @v", ("@id", c.Id), ("@v", c.Version)) == 0)
+            {
+                throw new ConcurrencyConflict($"Conversation '{c.Id}' changed since it was read. Reload and retry.");
+            }
+
+            // Messages are append-only: insert the ones not stored yet.
+            var stored = (long)C.Scalar("SELECT count(*) FROM conversation_messages WHERE conversation_id = @id", ("@id", c.Id))!;
+            foreach (var m in c.Messages.Where(m => m.Ordinal >= stored))
+                C.Exec("INSERT INTO conversation_messages(conversation_id, ordinal, role, text, session, at) VALUES (@id, @o, @r, @t, @s, @at)",
+                    ("@id", c.Id), ("@o", m.Ordinal), ("@r", m.Role == MessageRole.Agent ? "agent" : "learner"), ("@t", m.Text),
+                    ("@s", m.Session), ("@at", Sql.Iso(m.At)));
+            return 0;
+        });
+        uow.Track(c);
+        c.MarkPersisted(c.Version + 1);
     }
 }
 

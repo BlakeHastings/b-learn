@@ -9,7 +9,7 @@ namespace BLearn.Infrastructure.Sqlite;
 /// </summary>
 internal static class Schema
 {
-    public const int Version = 1;
+    public const int Version = 4;
 
     private static string EdgeTypeList => string.Join(", ", EdgeTypes.List.Select(t => $"'{t.Name}'"));
 
@@ -148,7 +148,82 @@ internal static class Schema
             concept_id  TEXT NOT NULL REFERENCES concepts(id),
             answer      TEXT NOT NULL,
             feedback    TEXT,
+            at          TEXT NOT NULL,
+            question_index INTEGER,
+            correct     INTEGER
+        );
+        {V3Tables}
+        {V4Tables}
+        """;
+
+    /// <summary>Version 4: agent presence (operational state, not domain history). Safe to run again.</summary>
+    private const string V4Tables = """
+        CREATE TABLE IF NOT EXISTS agents (
+            session       TEXT PRIMARY KEY,
+            harness       TEXT,
+            managed       INTEGER NOT NULL DEFAULT 0,
+            last_seen     INTEGER NOT NULL,
+            listening_at  INTEGER,
+            queues        TEXT,
+            activity      TEXT,
+            left_at       INTEGER
+        );
+        """;
+
+    /// <summary>Tables added in version 3: conversations, quiz questions and checker reviews. Safe to run again.</summary>
+    private const string V3Tables = """
+        CREATE TABLE IF NOT EXISTS conversations (
+            id          TEXT PRIMARY KEY,
+            concept_id  TEXT NOT NULL REFERENCES concepts(id),
+            quote       TEXT,
+            fact_index  INTEGER,
+            started_at  TEXT NOT NULL,
+            version     INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS conversations_concept ON conversations(concept_id);
+
+        CREATE TABLE IF NOT EXISTS conversation_messages (
+            conversation_id  TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            ordinal          INTEGER NOT NULL,
+            role             TEXT NOT NULL CHECK (role IN ('learner', 'agent')),
+            text             TEXT NOT NULL CHECK (length(text) > 0),
+            session          TEXT,
+            at               TEXT NOT NULL,
+            PRIMARY KEY (conversation_id, ordinal),
+            CHECK (role = 'learner' OR session IS NOT NULL)
+        );
+
+        CREATE TABLE IF NOT EXISTS recall_questions (
+            concept_id  TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+            ordinal     INTEGER NOT NULL,
+            prompt      TEXT NOT NULL CHECK (length(prompt) > 0),
+            answer      TEXT NOT NULL CHECK (length(answer) > 0),
+            facts       TEXT NOT NULL,
+            PRIMARY KEY (concept_id, ordinal)
+        );
+
+        CREATE TABLE IF NOT EXISTS concept_checks (
+            concept_id  TEXT PRIMARY KEY REFERENCES concepts(id) ON DELETE CASCADE,
+            session     TEXT NOT NULL,
             at          TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS fact_checks (
+            concept_id  TEXT NOT NULL,
+            ordinal     INTEGER NOT NULL,
+            verdict     TEXT NOT NULL CHECK (verdict IN ('supports', 'partial', 'unsupported')),
+            note        TEXT,
+            PRIMARY KEY (concept_id, ordinal),
+            FOREIGN KEY (concept_id, ordinal) REFERENCES facts(concept_id, ordinal) ON DELETE CASCADE,
+            CHECK (verdict = 'supports' OR note IS NOT NULL)
+        );
+
+        CREATE TABLE IF NOT EXISTS teaching_flags (
+            concept_id  TEXT NOT NULL REFERENCES concept_checks(concept_id) ON DELETE CASCADE,
+            ordinal     INTEGER NOT NULL,
+            excerpt     TEXT NOT NULL CHECK (length(excerpt) > 0),
+            note        TEXT NOT NULL CHECK (length(note) > 0),
+            PRIMARY KEY (concept_id, ordinal)
         );
         """;
 
@@ -160,6 +235,7 @@ internal static class Schema
         tx.Commit();
     }
 
+    /// <summary>Checks the store's schema version and upgrades older stores in place.</summary>
     public static void Check(SqliteConnection c)
     {
         using var cmd = c.CreateCommand();
@@ -167,8 +243,51 @@ internal static class Schema
         object? v;
         try { v = cmd.ExecuteScalar(); }
         catch (SqliteException) { throw new InvalidDataException("Not a b-learn store (no meta table)."); }
+        if (v is "1") { Upgrade1To2(c); v = "2"; }
+        if (v is "2") { Upgrade2To3(c); v = "3"; }
+        if (v is "3") { Upgrade3To4(c); v = "4"; }
         if (v is not string s || s != Version.ToString())
             throw new InvalidDataException($"Unsupported store schema version '{v}'. Expected {Version}.");
+    }
+
+    /// <summary>Version 3 added conversations, quiz questions, checker reviews and self-graded recall answers.</summary>
+    private static void Upgrade2To3(SqliteConnection c)
+    {
+        using var tx = c.BeginTransaction();
+        Exec(c, V3Tables, tx);
+        foreach (var (column, type) in new[] { ("question_index", "INTEGER"), ("correct", "INTEGER") })
+            if (!HasColumn(c, tx, "learner_recall", column)) Exec(c, $"ALTER TABLE learner_recall ADD COLUMN {column} {type}", tx);
+        Exec(c, "UPDATE meta SET value = '3' WHERE key = 'schema_version'", tx);
+        tx.Commit();
+    }
+
+    private static void Upgrade3To4(SqliteConnection c)
+    {
+        using var tx = c.BeginTransaction();
+        Exec(c, V4Tables + "UPDATE meta SET value = '4' WHERE key = 'schema_version';", tx);
+        tx.Commit();
+    }
+
+    private static bool HasColumn(SqliteConnection c, SqliteTransaction tx, string table, string column)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"SELECT 1 FROM pragma_table_info('{table}') WHERE name = @c";
+        cmd.Parameters.AddWithValue("@c", column);
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    /// <summary>Version 2 renamed three events to match the resource commands. The payload carries the type too.</summary>
+    private static void Upgrade1To2(SqliteConnection c)
+    {
+        using var tx = c.BeginTransaction();
+        Exec(c, """
+            UPDATE events SET type = 'FactsReplaced', payload = json_set(payload, '$.type', 'FactsReplaced') WHERE type = 'FactsSubmitted';
+            UPDATE events SET type = 'TeachingReplaced', payload = json_set(payload, '$.type', 'TeachingReplaced') WHERE type = 'TeachingSubmitted';
+            UPDATE events SET type = 'GlossChanged', payload = json_set(payload, '$.type', 'GlossChanged') WHERE type = 'GlossRevised';
+            UPDATE meta SET value = '2' WHERE key = 'schema_version';
+            """, tx);
+        tx.Commit();
     }
 
     public static void Exec(SqliteConnection c, string sql, SqliteTransaction? tx = null)

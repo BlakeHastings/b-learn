@@ -3,6 +3,30 @@ namespace BLearn.Domain;
 /// <summary>An atomic claim with the evidence that supports it.</summary>
 public sealed record Fact(string Text, IReadOnlyList<string> EvidenceIds);
 
+/// <summary>A quiz question that tests one or more of the concept's facts (0-based indexes).</summary>
+public sealed record RecallQuestion(string Prompt, string Answer, IReadOnlyList<int> FactIndexes);
+
+public enum Verdict
+{
+    /// <summary>The cited quotes support the whole fact.</summary>
+    Supports,
+
+    /// <summary>The quotes support part of the fact; the note says which part is unsupported.</summary>
+    Partial,
+
+    /// <summary>The quotes do not support the fact.</summary>
+    Unsupported,
+}
+
+/// <summary>A checker's verdict on one fact.</summary>
+public sealed record FactCheck(int FactIndex, Verdict Verdict, string? Note);
+
+/// <summary>A passage in the gloss or teaching that the checker found unsupported by the facts.</summary>
+public sealed record TeachingFlag(string Excerpt, string Note);
+
+/// <summary>The latest independent review of a concept's facts and teaching.</summary>
+public sealed record CheckRecord(IReadOnlyList<FactCheck> Facts, IReadOnlyList<TeachingFlag> Flags, string Session, DateTimeOffset At);
+
 public enum ConceptStatus
 {
     /// <summary>Title and gloss only; not researched.</summary>
@@ -23,6 +47,7 @@ public sealed class Concept : AggregateRoot
 {
     private List<string> _aliases = [];
     private List<Fact> _facts = [];
+    private List<RecallQuestion> _recall = [];
 
     public string Id { get; private set; } = "";
     public string Title { get; private set; } = "";
@@ -34,6 +59,11 @@ public sealed class Concept : AggregateRoot
 
     /// <summary>True when the teaching text was imported rather than written from facts.</summary>
     public bool TeachingLegacy { get; private set; }
+
+    public IReadOnlyList<RecallQuestion> RecallQuestions => _recall;
+
+    /// <summary>The latest checker review, or null. Cleared when the facts change.</summary>
+    public CheckRecord? Check { get; private set; }
 
     public ConceptStatus Status => (_facts.Count > 0, Summary is not null) switch
     {
@@ -47,7 +77,8 @@ public sealed class Concept : AggregateRoot
 
     public static Concept Rehydrate(
         string id, string title, string gloss, IEnumerable<string> aliases, IEnumerable<Fact> facts,
-        string? summary, string? explanation, bool teachingLegacy, long version) =>
+        string? summary, string? explanation, bool teachingLegacy, long version,
+        IEnumerable<RecallQuestion>? recall = null, CheckRecord? check = null) =>
         new()
         {
             Id = id,
@@ -59,6 +90,8 @@ public sealed class Concept : AggregateRoot
             Explanation = explanation,
             TeachingLegacy = teachingLegacy,
             Version = version,
+            _recall = recall?.ToList() ?? [],
+            Check = check,
         };
 
     public static Concept CreateStub(string id, string title, string gloss, IEnumerable<string> aliases, IGraphReader graph)
@@ -110,16 +143,17 @@ public sealed class Concept : AggregateRoot
         Raise(new AliasAdded(Id, alias));
     }
 
-    public void ReviseGloss(string gloss)
+    public void ChangeGloss(string gloss)
     {
         Gloss = BLearn.Domain.Gloss.Require(gloss);
-        Raise(new GlossRevised(Id, Gloss));
+        DropTeachingFlags();
+        Raise(new GlossChanged(Id, Gloss));
     }
 
     /// <summary>Replaces the concept's facts. Every fact must cite existing evidence.</summary>
-    public void SubmitFacts(IReadOnlyList<Fact> facts, IGraphReader graph)
+    public void ReplaceFacts(IReadOnlyList<Fact> facts, IGraphReader graph)
     {
-        if (facts.Count == 0) throw new DomainViolation("facts-required", "Submit at least one fact.");
+        if (facts.Count == 0) throw new DomainViolation("facts-required", "Give at least one fact.");
         var clean = new List<Fact>();
         for (var i = 0; i < facts.Count; i++)
         {
@@ -136,16 +170,19 @@ public sealed class Concept : AggregateRoot
             clean.Add(new Fact(text, evidence));
         }
         _facts = clean;
-        Raise(new FactsSubmitted(Id, clean));
+        // Verdicts and quiz questions point at facts by index, so they no longer apply.
+        Check = null;
+        _recall = [];
+        Raise(new FactsReplaced(Id, clean));
     }
 
     /// <summary>Sets the teaching text. Unless importing legacy content, facts must exist first.</summary>
-    public void SubmitTeaching(string summary, string explanation, IGraphReader graph, bool legacy = false)
+    public void ReplaceTeaching(string summary, string explanation, IGraphReader graph, bool legacy = false)
     {
         summary = summary.Trim();
         explanation = explanation.Trim();
         if (!legacy && _facts.Count == 0)
-            throw new DomainViolation("teaching-before-facts", "Teaching is written from facts. Submit evidence-backed facts first.");
+            throw new DomainViolation("teaching-before-facts", "Teaching is written from facts. Put evidence-backed facts first.");
         if (summary.Length == 0) throw new DomainViolation("teaching-format", "Summary is required.");
         if (explanation.Length == 0) throw new DomainViolation("teaching-format", "Explanation is required.");
         foreach (var (name, text) in new[] { ("Summary", summary), ("Explanation", explanation) })
@@ -157,7 +194,8 @@ public sealed class Concept : AggregateRoot
         Summary = summary;
         Explanation = explanation;
         TeachingLegacy = legacy;
-        Raise(new TeachingSubmitted(Id, summary, explanation, legacy));
+        DropTeachingFlags();
+        Raise(new TeachingReplaced(Id, summary, explanation, legacy));
     }
 
     public void RequestExpansion()
@@ -174,18 +212,89 @@ public sealed class Concept : AggregateRoot
         Raise(new TeachingRequested(Id, factIndex));
     }
 
-    public void AskQuestion(string questionId, string text)
-    {
-        text = text.Trim();
-        if (text.Length == 0) throw new DomainViolation("question-required", "Question text is required.");
-        Raise(new QuestionAsked(Id, questionId, text));
-    }
-
     public void RequestRecall()
     {
         if (Status == ConceptStatus.Stub)
             throw new DomainViolation("recall-on-stub", $"'{Id}' has nothing to recall yet.");
         Raise(new RecallRequested(Id));
+    }
+
+    /// <summary>Replaces the quiz. Every question tests at least one existing fact.</summary>
+    public void ReplaceRecallQuestions(IReadOnlyList<RecallQuestion> questions)
+    {
+        if (_facts.Count == 0) throw new DomainViolation("recall-on-stub", $"'{Id}' has no facts to test yet.");
+        if (questions.Count == 0) throw new DomainViolation("recall-required", "Give at least one question.");
+        var clean = new List<RecallQuestion>();
+        for (var i = 0; i < questions.Count; i++)
+        {
+            var q = questions[i];
+            var prompt = q.Prompt.Trim();
+            var answer = q.Answer.Trim();
+            if (prompt.Length == 0 || answer.Length == 0)
+                throw new DomainViolation("recall-format", $"Question {i + 1} needs a prompt and an answer.");
+            var facts = q.FactIndexes.Distinct().ToList();
+            if (facts.Count == 0) throw new DomainViolation("recall-uncited", $"Question {i + 1} tests no fact. List the fact indexes it tests.");
+            foreach (var f in facts)
+                if (f < 0 || f >= _facts.Count)
+                    throw new DomainViolation("fact-index", $"Question {i + 1} tests fact {f}, but '{Id}' has facts 0 to {_facts.Count - 1}.");
+            clean.Add(new RecallQuestion(prompt, answer, facts));
+        }
+        _recall = clean;
+        Raise(new RecallQuestionsReplaced(Id, clean.Count));
+    }
+
+    /// <summary>
+    /// Records an independent review: a verdict for every fact, and flags on gloss or teaching passages
+    /// the facts do not support. The checker must not be the session that captured the cited evidence.
+    /// </summary>
+    public void RecordCheck(IReadOnlyList<FactCheck> checks, IReadOnlyList<TeachingFlag> flags, string session, DateTimeOffset at, IGraphReader graph)
+    {
+        session = session.Trim();
+        if (session.Length == 0) throw new DomainViolation("session-required", "The checking session id is required.");
+        if (_facts.Count == 0) throw new DomainViolation("facts-required", $"'{Id}' has no facts to check.");
+
+        var byIndex = new Dictionary<int, FactCheck>();
+        foreach (var c in checks)
+        {
+            if (c.FactIndex < 0 || c.FactIndex >= _facts.Count)
+                throw new DomainViolation("fact-index", $"'{Id}' has facts 0 to {_facts.Count - 1}; there is no fact {c.FactIndex}.");
+            if (c.Verdict != Verdict.Supports && string.IsNullOrWhiteSpace(c.Note))
+                throw new DomainViolation("check-note-required", $"Fact {c.FactIndex} is {c.Verdict.ToString().ToLowerInvariant()}: say what the quotes do not support.");
+            if (!byIndex.TryAdd(c.FactIndex, c with { Note = string.IsNullOrWhiteSpace(c.Note) ? null : c.Note.Trim() }))
+                throw new DomainViolation("check-duplicate", $"Fact {c.FactIndex} has more than one verdict.");
+        }
+        var missing = Enumerable.Range(0, _facts.Count).Where(i => !byIndex.ContainsKey(i)).ToList();
+        if (missing.Count > 0)
+            throw new DomainViolation("check-incomplete", $"Give a verdict for every fact. Missing: {string.Join(", ", missing)}.");
+
+        foreach (var evidence in _facts.SelectMany(f => f.EvidenceIds).Distinct())
+            if (graph.EvidenceCapturedBy(evidence) == session)
+                throw new DomainViolation("check-same-session",
+                    $"Session '{session}' captured evidence '{evidence}' for these facts. The check must come from a different session.");
+
+        var teaching = string.Join("\n", new[] { Gloss, Summary ?? "", Explanation ?? "" });
+        var cleanFlags = new List<TeachingFlag>();
+        foreach (var f in flags)
+        {
+            var excerpt = f.Excerpt.Trim();
+            var note = f.Note.Trim();
+            if (excerpt.Length == 0 || note.Length == 0) throw new DomainViolation("flag-format", "Each flag needs an excerpt and a note.");
+            if (!QuoteMatcher.Contains(teaching, excerpt))
+                throw new DomainViolation("flag-not-found", $"The excerpt '{excerpt}' does not appear in the gloss, summary or explanation. Quote it verbatim.");
+            cleanFlags.Add(new TeachingFlag(excerpt, note));
+        }
+
+        var ordered = byIndex.OrderBy(k => k.Key).Select(k => k.Value).ToList();
+        Check = new CheckRecord(ordered, cleanFlags, session, at);
+        Raise(new FactsChecked(Id, session,
+            ordered.Count(c => c.Verdict == Verdict.Supports), ordered.Count(c => c.Verdict == Verdict.Partial),
+            ordered.Count(c => c.Verdict == Verdict.Unsupported), cleanFlags.Count));
+    }
+
+    /// <summary>Teaching flags quote the old text, so they lapse when that text changes.</summary>
+    private void DropTeachingFlags()
+    {
+        if (Check is { Flags.Count: > 0 }) Check = Check with { Flags = [] };
     }
 
     private void CheckLinks(string text, IGraphReader graph, string where)

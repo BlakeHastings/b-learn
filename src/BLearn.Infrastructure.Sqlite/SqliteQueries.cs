@@ -39,15 +39,30 @@ internal sealed class SqliteQueries(string path) : IQueries
             .ToDictionary(e => e.Id);
         var links = c.Query("SELECT ordinal, evidence_id FROM fact_evidence WHERE concept_id = @id ORDER BY evidence_id",
             r => (Ordinal: (int)r.GetInt64(0), Evidence: r.GetString(1)), ("@id", id)).ToLookup(x => x.Ordinal, x => evidence[x.Evidence]);
+        var verdicts = c.Query("SELECT ordinal, verdict, note FROM fact_checks WHERE concept_id = @id",
+            r => (Ordinal: (int)r.GetInt64(0), View: new FactCheckView(r.GetString(1), r.NullableString(2))), ("@id", id))
+            .ToDictionary(x => x.Ordinal, x => x.View);
         var facts = c.Query("SELECT ordinal, text FROM facts WHERE concept_id = @id ORDER BY ordinal", r =>
         {
-            var ev = links[(int)r.GetInt64(0)].ToList();
-            return new FactView((int)r.GetInt64(0), r.GetString(1), ev, ev.Any(e => !e.Stale && e.MeetsMinTrust));
+            var ordinal = (int)r.GetInt64(0);
+            var ev = links[ordinal].ToList();
+            return new FactView(ordinal, r.GetString(1), ev, ev.Any(e => !e.Stale && e.MeetsMinTrust), verdicts.GetValueOrDefault(ordinal));
         }, ("@id", id));
+        var check = c.Query("SELECT session, at FROM concept_checks WHERE concept_id = @id",
+            r => new CheckView(r.GetString(0), Sql.ParseIso(r.GetString(1)), []), ("@id", id)).FirstOrDefault();
+        if (check is not null)
+            check = check with
+            {
+                TeachingFlags = c.Query("SELECT excerpt, note FROM teaching_flags WHERE concept_id = @id ORDER BY ordinal",
+                    r => new TeachingFlagView(r.GetString(0), r.GetString(1)), ("@id", id)),
+            };
+        var recall = c.Query("SELECT ordinal, prompt, answer, facts FROM recall_questions WHERE concept_id = @id ORDER BY ordinal",
+            r => new RecallQuestionView((int)r.GetInt64(0), r.GetString(1), r.GetString(2),
+                System.Text.Json.JsonSerializer.Deserialize<List<int>>(r.GetString(3))!), ("@id", id));
         var work = OpenWork(c, id);
         var status = StatusOf(facts.Count > 0, row.Summary is not null);
         return new ConceptDetail(row.Id, row.Title, row.Gloss, status, aliases, row.Summary, row.Explanation, row.Legacy, facts,
-            NeighborsOf(c, id), work);
+            NeighborsOf(c, id), work, check, recall);
     });
 
     public IReadOnlyList<ConceptSummary> ListConcepts(string? status = null) =>
@@ -108,6 +123,39 @@ internal sealed class SqliteQueries(string path) : IQueries
 
     public IReadOnlyList<string> Known() => With(c => c.Query("SELECT concept_id FROM learner_known ORDER BY concept_id", r => r.GetString(0)));
 
+    public IReadOnlyList<(string Name, string Id)> ConceptNames() => With(c =>
+        c.Query("SELECT title, id FROM concepts UNION SELECT name, concept_id FROM concept_names WHERE kind = 'alias'", r => (r.GetString(0), r.GetString(1))));
+
+    public ConversationView? GetConversation(string id) => With(c => Conversations(c, "WHERE v.id = @id", 1, ("@id", id)).FirstOrDefault());
+
+    public IReadOnlyList<ConversationView> ListConversations(string? conceptId = null, int limit = 50) => With(c =>
+        conceptId is null
+            ? Conversations(c, "", limit)
+            : Conversations(c, "WHERE v.concept_id = @c", limit, ("@c", conceptId)));
+
+    private static List<ConversationView> Conversations(SqliteConnection c, string where, int limit, params (string, object?)[] args)
+    {
+        var rows = c.Query($"""
+            SELECT v.id, v.concept_id, k.title, v.quote, v.fact_index, f.text, v.started_at
+            FROM conversations v
+            JOIN concepts k ON k.id = v.concept_id
+            LEFT JOIN facts f ON f.concept_id = v.concept_id AND f.ordinal = v.fact_index
+            {where}
+            ORDER BY (SELECT max(at) FROM conversation_messages m WHERE m.conversation_id = v.id) DESC, v.id DESC
+            LIMIT @limit
+            """, r => (Id: r.GetString(0), Concept: r.GetString(1), Title: r.GetString(2), Quote: r.NullableString(3),
+                Fact: r.NullableLong(4), FactText: r.NullableString(5), At: Sql.ParseIso(r.GetString(6))),
+            [.. args, ("@limit", limit)]);
+        return rows.Select(row =>
+        {
+            var messages = c.Query("SELECT ordinal, role, text, session, at FROM conversation_messages WHERE conversation_id = @id ORDER BY ordinal",
+                r => new MessageView((int)r.GetInt64(0), r.GetString(1), r.GetString(2), r.NullableString(3), Sql.ParseIso(r.GetString(4))),
+                ("@id", row.Id));
+            return new ConversationView(row.Id, row.Concept, row.Title, row.Quote, row.Fact is { } f ? (int)f : null, row.FactText,
+                row.At, messages.Count > 0 && messages[^1].Role == "learner", messages);
+        }).ToList();
+    }
+
     // ---------- helpers ----------
 
     internal static string StatusOf(bool hasFacts, bool hasTeaching) => (hasFacts, hasTeaching) switch
@@ -138,7 +186,8 @@ internal sealed class SqliteQueries(string path) : IQueries
                 var other = summaries[outgoing ? e.Target : e.Source];
                 var dir = outgoing ? type.Direction : EdgeTypes.Invert(type.Direction);
                 return new NeighborView(other.Id, other.Title, other.Gloss, other.Status, dir.ToString().ToLowerInvariant(),
-                    outgoing ? type.Name : type.InverseLabel, type.Name, e.Legacy, evidence[(e.Source, e.Target)].ToList());
+                    outgoing ? type.Name : type.InverseLabel, type.Name, e.Legacy, evidence[(e.Source, e.Target)].ToList(),
+                    e.Source, e.Target);
             }).ToList();
     }
 

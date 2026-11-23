@@ -43,19 +43,32 @@ public sealed class SourceFetcher(HttpClient http) : ISourceFetcher
         mediaType is "text/html" or "application/xhtml+xml" ? HtmlText.Extract(body) : body;
 }
 
-/// <summary>Reduces HTML to its visible text. Good enough for verbatim quote matching, not a renderer.</summary>
+/// <summary>
+/// Reduces HTML to its readable text: the page's main content when it marks one, without navigation,
+/// footnote markers or edit links. Good enough for verbatim quote matching, not a renderer.
+/// </summary>
 public static partial class HtmlText
 {
-    [GeneratedRegex(@"<(script|style|noscript|svg|template|head)\b[^>]*>.*?</\1\s*>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
-    private static partial Regex Hidden();
+    // A tag, allowing ">" inside quoted attribute values (Wikipedia stores JSON with markup in attributes).
+    private const string Tag = """<(?:[^>"']|"[^"]*"|'[^']*')*>""";
 
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex Comments();
 
-    [GeneratedRegex(@"</?(p|div|br|li|ul|ol|h[1-6]|tr|td|th|table|section|article|pre|blockquote|dd|dt)\b[^>]*>", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"<(script|style|noscript|svg|template|head|nav|header|footer|aside|form|button)\b(?:[^>""']|""[^""]*""|'[^']*')*>.*?</\1\s*>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex Hidden();
+
+    // Footnote markers like [12] and Wikipedia's [edit] links break quotes that span them.
+    [GeneratedRegex(@"<(sup|span)\b[^>]*class=""[^""]*\b(reference|mw-editsection|noprint)\b[^""]*""[^>]*>.*?</\1\s*>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex Markers();
+
+    [GeneratedRegex(@"<main\b(?:[^>""']|""[^""]*""|'[^']*')*>(.*)</main\s*>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex Main();
+
+    [GeneratedRegex(@"</?(p|div|br|li|ul|ol|h[1-6]|tr|td|th|table|section|article|pre|blockquote|dd|dt|figcaption)\b(?:[^>""']|""[^""]*""|'[^']*')*>", RegexOptions.IgnoreCase)]
     private static partial Regex Blocks();
 
-    [GeneratedRegex(@"<[^>]+>")]
+    [GeneratedRegex(Tag)]
     private static partial Regex Tags();
 
     [GeneratedRegex(@"[ \t\f\v]+")]
@@ -67,7 +80,9 @@ public static partial class HtmlText
     public static string Extract(string html)
     {
         var s = Comments().Replace(html, " ");
+        if (Main().Match(s) is { Success: true } main) s = main.Groups[1].Value;
         s = Hidden().Replace(s, " ");
+        s = Markers().Replace(s, "");
         s = Blocks().Replace(s, "\n");
         s = Tags().Replace(s, "");
         s = WebUtility.HtmlDecode(s);

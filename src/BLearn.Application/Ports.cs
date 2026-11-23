@@ -28,6 +28,12 @@ public interface IGraphRepository
     void Save(Graph graph);
 }
 
+public interface IConversationRepository
+{
+    Conversation? Find(string id);
+    void Save(Conversation conversation);
+}
+
 public interface ILearnerRepository
 {
     Learner Load();
@@ -61,6 +67,7 @@ public interface IUnitOfWork : IDisposable
     IStoreSettingsRepository Settings { get; }
     IGraphRepository Graph { get; }
     ILearnerRepository Learner { get; }
+    IConversationRepository Conversations { get; }
     ISnapshotStore Snapshots { get; }
 
     /// <summary>Events from aggregates saved so far in this unit of work, in order.</summary>
@@ -116,6 +123,7 @@ public interface IStore : IDisposable
     IQueries Queries { get; }
     IEventLog Events { get; }
     IWorkQueue Queue { get; }
+    IAgentPresence Agents { get; }
 }
 
 public interface IStoreProvider

@@ -158,6 +158,60 @@
   #agents table { width: 100%; border-collapse: collapse; font-size: 13px; }
   #agents td, #agents th { text-align: left; padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; }
 
+  /* checker marks */
+  .verdict { font-size: 12px; font-weight: 700; margin-left: 6px; cursor: help; }
+  .verdict.supports { color: var(--good); } .verdict.partial { color: var(--warn); } .verdict.unsupported { color: var(--bad); }
+  .checked-by { font-size: 12px; color: var(--muted); margin: -2px 0 6px; }
+  .flags li { margin: 4px 0; } .flags q { font-style: italic; }
+
+  /* select to ask */
+  #askSel { position: absolute; z-index: 45; }
+
+  /* chat */
+  #chat { position: fixed; right: 16px; bottom: 16px; z-index: 55; width: min(400px, calc(100vw - 32px)); height: min(560px, calc(100vh - 100px));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+  #chat.min { height: auto; width: auto; }
+  #chat.min .chat-body, #chat.min .chat-compose { display: none; }
+  .chat-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; }
+  #chat.min .chat-head { border-bottom: 0; }
+  .chat-head b { flex: 1; font-size: 14px; }
+  .chat-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .chat-body { flex: 1; overflow: auto; padding: 10px 12px; font-size: 14px; }
+  .chat-body .conv { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .chat-body .conv:hover { border-color: var(--accent); }
+  .chat-body .conv small { display: block; color: var(--muted); font-size: 12px; }
+  .msg { margin: 8px 0; padding: 8px 10px; border-radius: 10px; max-width: 92%; line-height: 1.5; }
+  .msg p { margin: 4px 0; }
+  .msg.learner { background: var(--soft); margin-left: auto; white-space: pre-wrap; }
+  .msg.agent { border: 1px solid var(--line); }
+  .anchor { border-left: 3px solid var(--accent); padding: 4px 8px; color: var(--muted); font-size: 13px; margin: 4px 0 8px; }
+  .chat-compose { border-top: 1px solid var(--line); padding: 8px 10px; display: grid; gap: 6px; }
+  .chat-compose textarea { width: 100%; resize: none; height: 56px; font-size: 14px; }
+  .chip { font-size: 12px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; display: flex; gap: 6px; align-items: center; }
+  .chip span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .waiting { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+
+  /* agent status */
+  .agent-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px; padding: 2px 10px; max-width: 420px; }
+  .agent-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--stub); flex: none; }
+  .agent-pill.ready { color: var(--ink); } .agent-pill.ready i { background: var(--good); }
+  .agent-pill.working { color: var(--ink); border-color: var(--accent); } .agent-pill.working i { background: var(--accent); animation: pulse 1.2s infinite; }
+  .agent-pill.none { color: var(--warn); border-color: var(--warn); }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .connect { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0; font-size: 14px; }
+  .connect.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--ink); }
+  .connect .row { margin-top: 8px; }
+  .agent-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .agent-row:first-child { border-top: 0; }
+  .agent-row small { color: var(--muted); display: block; }
+
+  /* quiz */
+  #quiz { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+  #quiz .box { background: var(--panel); border-radius: 12px; padding: 20px 24px; width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow); }
+  #quiz textarea { width: 100%; height: 80px; margin: 8px 0; }
+  #quiz .answer { background: var(--soft); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 14px; z-index: 60; max-width: calc(100vw - 32px); }
 </style>
 </head>
@@ -179,10 +233,11 @@
   <div class="card">
     <h2>Create a store</h2>
     <div class="form">
-      <label>File <input id="newPath" placeholder="C:\Users\you\Documents\b-learn\topic.blearn"></label>
+      <label>What do you want to learn? <input id="newRoot" placeholder="Rust"></label>
       <label>Name <input id="newName" placeholder="Learning Rust"></label>
-      <label>What do you want to learn? (the root concept) <input id="newRoot" placeholder="Rust"></label>
-      <label>One-line description of it <input id="newGloss" placeholder="A systems programming language focused on safety and speed."></label>
+      <label>Saved to <input id="newPath"></label>
+      <label>One-line description (optional; research will write one) <input id="newGloss" placeholder="A systems programming language focused on safety and speed."></label>
+      <label class="check"><input type="checkbox" id="newWeb" checked> Agents may use the public web (official docs, standards, encyclopedias) as a source of truth</label>
       <label class="check"><input type="checkbox" id="newPrivate"> Private (contains proprietary information; agents must not leak it)</label>
       <div class="row"><button class="btn primary" id="createBtn">Create</button><span class="error" id="createErr"></span></div>
     </div>
@@ -196,6 +251,7 @@
       <span class="brand">b-learn<small id="storeName"></small></span>
       <span class="pill private hidden" id="privatePill">private</span>
       <span class="health" id="health"></span>
+      <button class="agent-pill none" id="agentPill" title="Agent connection"><i></i><span>Checking agent…</span></button>
       <div class="tabs">
         <input id="search" placeholder="Search concepts" autocomplete="off">
         <button id="tabConcept" class="on">Concept</button>
@@ -230,11 +286,14 @@
 
 <div id="agents" class="hidden"></div>
 <div id="toast" class="hidden"></div>
+<button id="askSel" class="btn primary small hidden">Ask about this</button>
+<div id="chat" class="min hidden"></div>
+<div id="quiz" class="hidden"></div>
 
 <script>
 const ARROW = { down: "↓ deeper", up: "↑ up", lateral: "↔ sideways" };
 const DIR_ORDER = ["down", "lateral", "up"];
-let state = null;            // /api/state
+let state = null;            // GET /api/session
 let current = null;          // current concept payload
 let view = "concept";        // concept | graph
 let hops = 2;
@@ -265,7 +324,7 @@ function getConcept(id) {
 const relCache = new Map();
 function getRelation(from, to) {
   const k = from + "|" + to;
-  if (!relCache.has(k)) relCache.set(k, api(`/api/relation?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).catch(() => null));
+  if (!relCache.has(k)) relCache.set(k, api(`/api/edges/${encodeURIComponent(from)}/${encodeURIComponent(to)}`).catch(() => null));
   return relCache.get(k);
 }
 function invalidate() { cache.clear(); relCache.clear(); }
@@ -275,13 +334,13 @@ function loadTrail() { try { trail = JSON.parse(sessionStorage.getItem(trailKey(
 
 // ---------- boot / picker ----------
 async function boot() {
-  state = await api("/api/state");
+  state = await api("/api/session");
   if (!state.store) return showPicker();
   showApp();
 }
 
 function showPicker() {
-  $("app").classList.add("hidden"); $("picker").classList.remove("hidden");
+  $("app").classList.add("hidden"); $("picker").classList.remove("hidden"); $("chat").classList.add("hidden");
   const list = state.recent || [];
   $("recentList").innerHTML = list.length ? list.map(r => `<li>
       <div><b>${esc(r.name)}</b><div class="path">${esc(r.path)}${r.exists ? "" : " (missing)"}</div></div>
@@ -292,21 +351,31 @@ function showPicker() {
 
 async function openStore(path, errEl) {
   errEl.textContent = "";
-  try { await api("/api/store/open", { method: "POST", body: { path } }); await boot(); }
+  try { await api("/api/session", { method: "POST", body: { path } }); await boot(); }
   catch (e) { errEl.textContent = e.message; }
 }
 
 $("openBtn").onclick = () => openStore($("openPath").value.trim(), $("openErr"));
+let pathEdited = false, nameEdited = false;
+function slug(t) { return t.toLowerCase().replace(/#/g, "sharp").replace(/\+/g, "plus").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "topic"; }
+function suggestStore() {
+  const root = $("newRoot").value.trim();
+  if (!nameEdited) $("newName").value = root ? `Learning ${root}` : "";
+  if (!pathEdited && state?.defaultFolder) $("newPath").value = root ? `${state.defaultFolder}\\${slug(root)}.blearn` : "";
+}
+$("newRoot").oninput = suggestStore;
+$("newName").oninput = () => { nameEdited = true; };
+$("newPath").oninput = () => { pathEdited = true; };
 $("createBtn").onclick = async () => {
   $("createErr").textContent = "";
   try {
-    await api("/api/store/create", { method: "POST", body: {
+    await api("/api/stores", { method: "POST", body: {
       path: $("newPath").value.trim(), name: $("newName").value.trim(), rootTitle: $("newRoot").value.trim(),
-      rootGloss: $("newGloss").value.trim(), private: $("newPrivate").checked } });
+      rootGloss: $("newGloss").value.trim() || null, private: $("newPrivate").checked, webSource: $("newWeb").checked } });
     await boot();
   } catch (e) { $("createErr").textContent = e.data?.message || e.message; }
 };
-$("closeStore").onclick = async () => { await api("/api/store/close", { method: "POST" }); location.hash = ""; await boot(); };
+$("closeStore").onclick = async () => { await api("/api/session", { method: "DELETE" }); location.hash = ""; await boot(); };
 
 // ---------- app shell ----------
 function showApp() {
@@ -365,14 +434,22 @@ async function go(id, { refresh = false } = {}) {
     const idx = trail.findIndex(t => t.id === id);
     if (idx >= 0 && idx < trail.length - 1) { returningFrom = trail[trail.length - 1]; trail = trail.slice(0, idx + 1); }
     else if (!trail.length || trail[trail.length - 1].id !== id) trail.push({ id, title: data.concept.title, via });
-    if (from && from !== id) api("/api/learner/visit", { method: "POST", body: { conceptId: id, from, direction: via } }).catch(() => {});
+    if (from && from !== id) api("/api/learner/visits", { method: "POST", body: { conceptId: id, from, direction: via } }).catch(() => {});
     saveTrail();
   }
   current = data;
   current.arrival = refresh ? current.arrival : (via && from ? { from, via, rel: await getRelation(from, id) } : null);
+  // Reaching a stub asks for its research; the queue ignores duplicates.
+  if (!refresh && data.concept.status === "stub" && !(data.concept.openWork || []).length) {
+    api(`/api/concepts/${encodeURIComponent(id)}/requests`, { method: "POST", body: { kind: "expand" } })
+      .then(() => { cache.delete(id); return getConcept(id); })
+      .then(d => { if (current?.concept.id === id) { current = { ...d, arrival: current.arrival }; renderNote(); } })
+      .catch(() => {});
+  }
   renderTrail();
   renderNote(returningFrom);
   renderSide();
+  if (!refresh && chat.scope === "concept") loadChatList().then(renderChat);
   if (view === "graph") renderGraph();
   if (!refresh) window.scrollTo(0, 0);
 }
@@ -392,13 +469,13 @@ function renderTrail() {
 function workLine(w) {
   const kind = w.payload?.kind || w.queue;
   const who = w.state === "leased" ? `an agent (${esc(w.receivedBy || "unknown")}) is working on it` : "waiting for an agent";
-  const what = { expand: "Research", teach: "Teaching", ask: "Question", recall: "Recall quiz" }[kind] || kind;
+  const what = { expand: "Research", teach: "Teaching", ask: "Question", recall: "Quiz questions", check: "Independent check" }[kind] || kind;
   const extra = w.payload?.text ? `: “${esc(w.payload.text)}”` : w.payload?.factIndex != null ? ` (fact ${w.payload.factIndex + 1})` : "";
   return `<div class="work"><span class="spinner"></span>${what}${extra}: ${who}.</div>`;
 }
 
 function renderNote(returningFrom) {
-  const { concept: c, summaryHtml, explanationHtml, facts } = current;
+  const { concept: c, summaryHtml, explanationHtml, facts, glossHtml } = current;
   const el = $("note");
   const work = (c.openWork || []).map(w => ({ ...w, payload: typeof w.payloadJson === "string" ? JSON.parse(w.payloadJson) : w.payload }));
   const arrival = current.arrival?.rel ? `<span class="arrival">arrived via <b>${esc(current.arrival.rel.label)}</b> ${ARROW[current.arrival.rel.direction]}</span>` : "";
@@ -407,52 +484,56 @@ function renderNote(returningFrom) {
   const known = (state.known || []).includes(c.id);
 
   let html = `${ret}${arrival}<div class="title-row"><h1>${esc(c.title)}</h1>${statusPill(c.status)}</div>
-    <p class="gloss">${esc(c.gloss)}</p>`;
+    <p class="gloss">${glossHtml || esc(c.gloss)}</p>`;
 
   if (c.status === "stub") {
-    html += `<div class="banner info">Not researched yet.</div>`;
+    html += `<div class="banner info">Not researched yet. ${expanding ? "Research has been requested; it appears here when an agent finishes." : ""}</div>`;
+    if (expanding) html += connectPrompt("its research");
     if (expanding) html += `<div class="shimmer"></div><div class="shimmer" style="width:80%"></div><div class="shimmer" style="width:60%"></div>`;
   }
   if (c.status === "unverified") html += `<div class="banner warn"><b>Unverified.</b> This text was imported and is not backed by cited facts. Treat it as a lead, not proof.</div>`;
 
   html += `<div class="actions">`;
-  if (c.status === "stub" || c.status === "unverified")
+  if (c.status === "unverified")
     html += `<button class="btn primary" data-req="expand" ${expanding ? "disabled" : ""}>${expanding ? "Research requested" : "Research this"}</button>`;
-  if (c.status !== "stub") html += `<button class="btn" data-req="recall">Test me</button>`;
+  if (facts.length) html += `<button class="btn" id="quizBtn">${(c.recallQuestions || []).length ? `Test me (${c.recallQuestions.length})` : "Test me"}</button>`;
+  html += `<button class="btn" id="askConcept">Ask a question</button>`;
   html += `<button class="btn" id="knownBtn">${known ? "Marked as known ✓" : "I know this"}</button></div>`;
   html += work.map(workLine).join("");
 
+  const flags = c.check?.teachingFlags || [];
+  if (flags.length) html += `<div class="banner warn"><b>The checker found ${flags.length} passage${flags.length > 1 ? "s" : ""} not supported by the facts:</b>
+    <ul class="flags">${flags.map(x => `<li><q>${esc(x.excerpt)}</q>: ${esc(x.note)}</li>`).join("")}</ul></div>`;
   if (summaryHtml) html += `<h2>Summary</h2>${summaryHtml}`;
   if (explanationHtml) html += `<h2>Explanation</h2>${explanationHtml}`;
 
   if (facts.length) {
-    html += `<h2>Facts</h2><ul class="facts">${facts.map(f => `<li>
+    const marks = { supports: ["✓", "Checker: the quotes support this fact"], partial: ["◐", "Checker: only partly supported"], unsupported: ["✗", "Checker: not supported by its quotes"] };
+    html += `<h2>Facts</h2>${c.check ? `<div class="checked-by">Independently checked by ${esc(c.check.session)} on ${new Date(c.check.at).toLocaleDateString()}</div>` : `<div class="checked-by">Not independently checked yet.</div>`}
+      <ul class="facts">${facts.map(f => `<li>
       <div class="ftext ${f.verified ? "" : "unverified-fact"}">${f.html}${f.evidence.map((e, i) =>
-        `<sup class="cite ${e.stale ? "stale" : ""}" data-fact="${f.index}" data-ev="${i}">[${esc(e.id)}]</sup>`).join("")}
+        `<sup class="cite ${e.stale ? "stale" : ""}" data-fact="${f.index}" data-ev="${i}">[${esc(e.id)}]</sup>`).join("")}${f.check ? `<span class="verdict ${f.check.verdict}" title="${esc(marks[f.check.verdict][1] + (f.check.note ? ": " + f.check.note : ""))}">${marks[f.check.verdict][0]}</span>` : ""}
         ${f.verified ? "" : `<div class="label" style="font-size:12px">evidence is stale or below this source's required trust</div>`}</div>
-      <button class="btn small" data-req="teach" data-fact="${f.index}" title="Ask an agent to teach this fact">Teach me</button></li>`).join("")}</ul>`;
+      <button class="btn small" data-explain="${f.index}" title="Ask an agent to explain this fact in the chat">Teach me</button></li>`).join("")}</ul>`;
   }
 
-  if (c.status !== "stub") html += `<h2>Ask</h2><div class="ask"><input id="askInput" placeholder="Ask a question about ${esc(c.title)}"><button class="btn" id="askBtn">Ask</button></div>`;
   el.innerHTML = html;
 
   el.querySelectorAll("[data-req]").forEach(b => b.onclick = () =>
     request(b.dataset.req, { factIndex: b.dataset.fact != null ? +b.dataset.fact : null }));
   $("knownBtn").onclick = async () => {
-    await api("/api/learner/known", { method: "POST", body: { conceptId: c.id, known: !known } });
+    await api(`/api/learner/known/${encodeURIComponent(c.id)}`, { method: known ? "DELETE" : "PUT" });
     await refreshLearner(); renderNote();
   };
-  if ($("askBtn")) {
-    const send = () => { const t = $("askInput").value.trim(); if (t) request("ask", { text: t }); };
-    $("askBtn").onclick = send;
-    $("askInput").onkeydown = e => { if (e.key === "Enter") send(); };
-  }
+  if ($("quizBtn")) $("quizBtn").onclick = () => startQuiz();
+  $("askConcept").onclick = () => compose({});
+  el.querySelectorAll("[data-explain]").forEach(b => b.onclick = () => ask({ factIndex: +b.dataset.explain, text: "Can you explain this fact in plain terms?" }));
 }
 
 async function request(kind, extra = {}) {
   try {
     await api(`/api/concepts/${encodeURIComponent(current.concept.id)}/requests`, { method: "POST", body: { kind, ...extra } });
-    toast({ expand: "Research requested", teach: "Teaching requested", ask: "Question sent", recall: "Recall quiz requested" }[kind] + ". Waiting for an agent.");
+    toast({ expand: "Research requested", teach: "Teaching requested", recall: "Quiz requested: an agent will write questions" }[kind] + ". Waiting for an agent.");
     await refreshCurrent();
   } catch (e) { toast(e.data?.message || e.message); }
 }
@@ -472,12 +553,12 @@ function renderSide() {
 
 async function refreshLearner() {
   if (!state?.store) return;
-  try { const l = await api("/api/learner"); state.known = l.known; } catch {}
+  try { state.known = await api("/api/learner/known"); } catch {}
 }
 
 async function refreshCurrent() {
   invalidate();
-  try { state = { ...state, ...(await api("/api/state")) }; renderHealth(); } catch {}
+  try { state = { ...state, ...(await api("/api/session")) }; renderHealth(); } catch {}
   await refreshLearner();
   if (current) await go(current.concept.id, { refresh: true });
 }
@@ -488,12 +569,14 @@ const NODE_W = 160, NODE_H = 44, COL = 190, ROW = 110;
 async function renderGraph() {
   if (!current) return;
   document.querySelectorAll("[data-hops]").forEach(b => b.classList.toggle("primary", +b.dataset.hops === hops));
-  const g = await api(`/api/graph/${encodeURIComponent(current.concept.id)}?hops=${hops}`);
-  const open = new Set(((await api("/api/queue").catch(() => ({ open: [] }))).open || [])
+  const g = await api(`/api/concepts/${encodeURIComponent(current.concept.id)}/graph?hops=${hops}`);
+  const open = new Set(((await api("/api/messages").catch(() => [])) || [])
     .map(m => { try { return JSON.parse(m.payloadJson).conceptId; } catch { return null; } }));
   const pos = layout(g);
   const xs = [...pos.values()].map(p => p.x), ys = [...pos.values()].map(p => p.y);
-  const minX = Math.min(...xs) - NODE_W / 2 - 110, maxX = Math.max(...xs) + NODE_W, minY = Math.min(...ys) - NODE_H - 30, maxY = Math.max(...ys) + NODE_H + 10;
+  const arcOf = (a, b) => Math.abs(b.x - a.x) > COL * 1.05 ? 24 + Math.abs(b.x - a.x) * 0.12 : 0;
+  const arcMax = Math.max(0, ...g.edges.map(e => pos.get(e.source) && pos.get(e.target) && pos.get(e.source).row === pos.get(e.target).row ? arcOf(pos.get(e.source), pos.get(e.target)) : 0));
+  const minX = Math.min(...xs) - NODE_W / 2 - 110, maxX = Math.max(...xs) + NODE_W, minY = Math.min(...ys) - NODE_H - 30 - arcMax, maxY = Math.max(...ys) + NODE_H + 10;
   const w = Math.max(maxX - minX, 600), h = Math.max(maxY - minY, 300);
   const svg = $("graph");
   svg.setAttribute("viewBox", `${minX} ${minY} ${w} ${h}`);
@@ -512,8 +595,11 @@ async function renderGraph() {
     if (!a || !b) continue;
     let d;
     if (a.row === b.row) {
-      const dir = b.x > a.x ? 1 : -1;
-      d = `M${a.x + dir * NODE_W / 2},${a.y} L${b.x - dir * NODE_W / 2},${b.y}`;
+      const dir = b.x > a.x ? 1 : -1, arc = arcOf(a, b);
+      // Neighbors side by side get a straight arrow; farther ones arc over the nodes in between.
+      d = arc === 0
+        ? `M${a.x + dir * NODE_W / 2},${a.y} L${b.x - dir * NODE_W / 2},${b.y}`
+        : `M${a.x + dir * NODE_W / 4},${a.y - NODE_H / 2} C${a.x + dir * NODE_W / 4},${a.y - NODE_H / 2 - arc} ${b.x - dir * NODE_W / 4},${b.y - NODE_H / 2 - arc} ${b.x - dir * NODE_W / 4},${b.y - NODE_H / 2}`;
     } else {
       const down = b.y > a.y ? 1 : -1;
       const y1 = a.y + down * NODE_H / 2, y2 = b.y - down * NODE_H / 2, my = (y1 + y2) / 2;
@@ -533,6 +619,9 @@ async function renderGraph() {
   }
   svg.innerHTML = out;
   svg.querySelectorAll(".node").forEach(el => el.onclick = () => { location.hash = `#/g/${el.dataset.id}`; });
+  // Keep the focus in view when the graph is wider than the window.
+  const wrap = svg.parentElement, focus = pos.get(g.focus);
+  if (focus) wrap.scrollLeft = Math.max(0, (focus.x - minX) - wrap.clientWidth / 2);
 }
 
 // Rows come from direction relative to the focus: up is above, down below, sideways on the same row.
@@ -606,7 +695,7 @@ $("search").oninput = () => {
   searchTimer = setTimeout(async () => {
     const q = $("search").value.trim(), box = $("results");
     if (!q) return box.classList.add("hidden");
-    const items = await api(`/api/search?q=${encodeURIComponent(q)}`);
+    const items = await api(`/api/concepts?search=${encodeURIComponent(q)}`);
     const r = $("search").getBoundingClientRect();
     box.style.left = r.left + "px"; box.style.top = (r.bottom + 4 + window.scrollY) + "px";
     box.innerHTML = items.length ? items.map(i => `<a href="#/c/${esc(i.id)}">${esc(i.title)} <span style="color:var(--muted);font-size:12px">${i.status}</span></a>`).join("") : `<a>No matches</a>`;
@@ -698,18 +787,287 @@ async function toggleAgents() {
 
 async function renderAgents() {
   const s = state.store, exe = state.exe;
-  const q = await api("/api/queue");
-  const instruction = `Run \`${exe} --store "${s.path}" agent brief\` and follow it. Process b-learn work for this store until I tell you to stop.`;
+  const q = { open: await api("/api/messages"), dead: await api("/api/messages?state=dead") };
+  const instruction = `Run \`${exe} --store "${s.path}" brief get\` and follow it. Process b-learn work for this store until I tell you to stop.`;
   const row = m => { const p = JSON.parse(m.payloadJson); return `<tr><td>${esc(m.queue)}</td><td>${esc(p.conceptId || "")}${p.text ? `: ${esc(p.text)}` : ""}</td>
     <td>${m.state === "leased" ? `claimed by ${esc(m.receivedBy)}` : m.state}</td><td>${m.attempts}</td></tr>`; };
+  const live = (agents.agents || []).filter(a => a.state !== "offline");
+  const available = (agents.harnesses || []).filter(h => h.available);
+  const m = agents.managed;
+  const agentRow = a => `<div class="agent-row"><span class="agent-pill ${a.state === "working" ? "working" : "ready"}"><i></i></span>
+      <div style="flex:1"><b>${esc(harnessName(a.harness) || a.session)}</b> ${a.managed ? "(started by b-learn)" : "(connected from your harness)"}
+      <small>${a.state === "working" ? `Working on ${esc(a.work.queue)}${a.work.conceptId ? ` for ${esc(a.work.conceptId)}` : ""}: ${esc(a.activity || "")}` : "Waiting for work"}</small></div></div>`;
   $("agents").innerHTML = `<div class="row" style="justify-content:space-between"><h2>Agents</h2><button class="btn" onclick="document.getElementById('agents').classList.add('hidden')">Close</button></div>
-    <p style="color:var(--muted);font-size:14px">Bring your own harness. Paste this into any agent that can run shell commands (Claude Code, Codex, and others). It reads the brief, then waits for work from this page.</p>
-    <pre id="instr">${esc(instruction)}</pre><button class="btn" id="copyInstr">Copy</button>
+    <h3>Connection</h3>
+    ${live.length ? live.map(agentRow).join("") : `<div class="connect warn"><b>No agent is connected.</b> Research, questions and quizzes wait until one is.</div>`}
+    ${m ? `<div class="row" style="margin-top:8px"><button class="btn" id="disconnectBtn">Disconnect ${esc(harnessName(m.harness))}</button>
+        <span style="color:var(--muted);font-size:13px">Connects automatically whenever you open a store.</span></div>`
+      : available.length ? `<div class="connect"><b>Connect with one click.</b> b-learn starts your agent for each request, using your own sign-in.
+          It may only run blearn commands, read web pages and write notes in its own work folder.
+          <div class="row">${available.map(h => `<button class="btn primary" data-connect="${esc(h.id)}">Connect ${esc(h.name)}</button>`).join("")}</div></div>` : ""}
+    <h3>Use any other agent</h3>
+    <p style="color:var(--muted);font-size:14px">Paste this into any agent that can run shell commands (Codex, Cursor, Gemini CLI and others). It reads the brief, then waits for work from this page, and shows up above when it is connected.</p>
+    <pre id="instr">${esc(instruction)}</pre><button class="btn" id="copyInstr">Copy</button>`
+    + `
     <h3>Waiting and in progress (${q.open.length})</h3>
     ${q.open.length ? `<table><tr><th>Kind</th><th>Concept</th><th>State</th><th>Tries</th></tr>${q.open.map(row).join("")}</table>` : `<p style="color:var(--muted);font-size:14px">Nothing queued. Requests you make on concept pages appear here.</p>`}
     ${q.dead.length ? `<h3>Failed (${q.dead.length})</h3><table><tr><th>Kind</th><th>Concept</th><th>Error</th><th>Tries</th></tr>${q.dead.map(m => { const p = JSON.parse(m.payloadJson); return `<tr><td>${esc(m.queue)}</td><td>${esc(p.conceptId || "")}</td><td>${esc(m.lastError || "")}</td><td>${m.attempts}</td></tr>`; }).join("")}</table>` : ""}
-    ${s.sources.length ? `<h3>Sources of truth</h3><ul style="font-size:14px">${s.sources.map(x => `<li><b>${esc(x.name)}</b> (${esc(x.system)}): ${esc(x.scope)}</li>`).join("")}</ul>` : `<div class="banner warn">No sources of truth registered. Agents cannot cite evidence until one is: <code>${esc(exe)} --store "…" source register web --system web --scope "..."</code></div>`}`;
-  $("copyInstr").onclick = () => navigator.clipboard.writeText(instruction).then(() => toast("Copied"));
+    <h3>Sources of truth</h3>
+    ${s.sources.length ? `<ul style="font-size:14px">${s.sources.map(x => `<li><b>${esc(x.name)}</b> (${esc(x.system)}): ${esc(x.scope)}</li>`).join("")}</ul>`
+      : `<div class="banner warn">No sources registered yet. Agents cannot cite evidence until you add one.</div>`}
+    <div class="form" style="font-size:14px">
+      <div class="row"><input id="srcName" placeholder="name, e.g. web" style="width:120px">
+        <select id="srcSystem" class="btn"><option value="web">web</option><option value="file">local files</option><option value="google-drive">Google Drive</option><option value="airtable">Airtable</option></select>
+        <input id="srcScope" placeholder="What it is authoritative about" style="flex:1"><button class="btn" id="srcAdd">Add</button></div>
+      <span class="error" id="srcErr"></span>
+    </div>`;
+  if ($("disconnectBtn")) $("disconnectBtn").onclick = async () => applyAgents(await api("/api/agents/disconnect", { method: "POST" }));
+  $("copyInstr").onclick = () => navigator.clipboard.writeText(instruction).then(() => toast("Copied"), () => toast("Select the text and copy it"));
+  $("srcAdd").onclick = async () => {
+    $("srcErr").textContent = "";
+    try {
+      await api("/api/sources", { method: "POST", body: { name: $("srcName").value.trim(), system: $("srcSystem").value, scope: $("srcScope").value.trim() } });
+      state = { ...state, ...(await api("/api/session")) };
+      renderAgents(); toast("Source added");
+    } catch (e) { $("srcErr").textContent = e.data?.message || e.message; }
+  };
+}
+
+// ---------- agent connection ----------
+let agents = { connected: false, agents: [], harnesses: [], managed: null };
+let agentsLoaded = false;
+
+async function loadAgents() {
+  try { applyAgents(await api("/api/agents")); } catch {}
+}
+
+/** Applies a new connection state and tells the learner about changes that matter to them. */
+function applyAgents(next) {
+  const before = agents;
+  agents = next;
+  if (agentsLoaded) {
+    const name = a => harnessName(a?.harness) || "Your agent";
+    if (!before.connected && next.connected) toast(`${name(next.agents[0])} connected.`);
+    else if (before.connected && !next.connected) toast("Your agent disconnected. Requests will wait until one connects.");
+    for (const a of next.agents || []) {
+      const was = (before.agents || []).find(b => b.session === a.session);
+      if (a.work && a.work.messageId !== was?.work?.messageId) {
+        const what = { expand: "researching", ask: "answering your question", teach: "writing teaching", recall: "writing quiz questions", check: "checking" }[a.work.queue] || "working";
+        if (a.work.queue !== "check") toast(`${name(a)} is ${what}${a.work.conceptId ? ` (${a.work.conceptId})` : ""}.`);
+      }
+    }
+  }
+  agentsLoaded = true;
+  renderAgentPill();
+  if (current) renderNote();
+  if (!chat.min) renderChat();
+  if (!$("agents").classList.contains("hidden")) renderAgents();
+}
+
+function harnessName(id) { return (agents.harnesses || []).find(h => h.id === id)?.name || (id ? id : null); }
+function busyAgent() { return (agents.agents || []).find(a => a.state === "working"); }
+
+function renderAgentPill() {
+  const pill = $("agentPill"), busy = busyAgent();
+  const ready = (agents.agents || []).find(a => a.state !== "offline");
+  pill.className = `agent-pill ${busy ? "working" : ready ? "ready" : "none"}`;
+  const who = a => harnessName(a.harness) || "Agent";
+  pill.querySelector("span").textContent = busy ? `${who(busy)}: ${busy.activity || "working"}`
+    : ready ? `${who(ready)} ready` : "No agent connected";
+  pill.title = busy ? "An agent is working. Click for details." : ready ? "An agent is connected and waiting for work." : "Click to connect an agent.";
+}
+
+/** A one-line prompt to connect, used wherever the learner is waiting on an agent. */
+function connectPrompt(context) {
+  if (agents.connected) return "";
+  const h = (agents.harnesses || []).find(x => x.available);
+  return `<div class="connect warn"><b>No agent is connected</b>, so ${context} will wait until one is.
+    <div class="row">${h ? `<button class="btn primary" data-connect="${esc(h.id)}">Connect ${esc(h.name)}</button>` : ""}
+    <button class="btn" data-open-agents>${h ? "Other agents" : "Connect an agent"}</button></div></div>`;
+}
+
+async function connectAgent(harness) {
+  try { applyAgents(await api("/api/agents/connect", { method: "POST", body: { harness, autoConnect: true } })); }
+  catch (e) { toast(e.data?.error || e.data?.message || e.message); }
+}
+
+document.addEventListener("click", e => {
+  const c = e.target.closest?.("[data-connect]");
+  if (c) { e.preventDefault(); connectAgent(c.dataset.connect); return; }
+  if (e.target.closest?.("[data-open-agents]")) { e.preventDefault(); $("agents").classList.contains("hidden") && toggleAgents(); }
+});
+$("agentPill").onclick = () => toggleAgents();
+
+// ---------- chat: conversations with agents ----------
+const chat = { min: true, convId: null, scope: "concept", draft: null, unread: false, list: [], conv: null };
+
+function chatShell() {
+  const head = chat.convId
+    ? `<button class="btn small" id="chatBack" title="All conversations">←</button><b>${esc(chat.conv?.conceptTitle || "Conversation")}</b>`
+    : `<b>Questions${chat.list.some(c => c.awaitingReply) ? " · waiting for an agent" : ""}</b>`;
+  $("chat").innerHTML = `<div class="chat-head" id="chatHead">${head}${chat.unread ? `<span class="dot" title="New answer"></span>` : ""}
+      <button class="btn small" id="chatToggle" title="${chat.min ? "Open" : "Minimize"}">${chat.min ? "▴" : "▾"}</button></div>
+    <div class="chat-body" id="chatBody"></div>
+    <div class="chat-compose" id="chatCompose"></div>`;
+  $("chat").classList.toggle("min", chat.min);
+  $("chatHead").onclick = e => { if (e.target.id !== "chatBack") toggleChat(); };
+  if ($("chatBack")) $("chatBack").onclick = () => { chat.convId = null; chat.conv = null; renderChat(); };
+}
+
+function toggleChat(open) {
+  chat.min = open === undefined ? !chat.min : !open;
+  if (!chat.min) chat.unread = false;
+  renderChat();
+}
+
+function renderChat() {
+  if (!state?.store) return $("chat").classList.add("hidden");
+  $("chat").classList.remove("hidden");
+  chatShell();
+  if (chat.min) return;
+  const body = $("chatBody");
+  if (chat.convId && chat.conv) {
+    const c = chat.conv;
+    const anchor = c.quote ? `<div class="anchor">About: “${esc(c.quote)}”</div>`
+      : c.factText ? `<div class="anchor">About fact ${c.factIndex + 1}: ${esc(c.factText)}</div>` : "";
+    const answering = (agents.agents || []).find(a => a.work?.queue === "ask" && c.messages.length && a.state === "working");
+    body.innerHTML = anchor + c.messages.map(m => `<div class="msg ${m.role}">${m.html}</div>`).join("")
+      + (c.awaitingReply ? (agents.connected
+          ? `<div class="waiting"><span class="spinner"></span>${answering ? `${esc(harnessName(answering.harness) || "Your agent")} is answering: ${esc(answering.activity || "thinking")}` : "Waiting for your agent to pick this up."}</div>`
+          : connectPrompt("this question")) : "");
+    body.scrollTop = body.scrollHeight;
+  } else {
+    const items = chat.list;
+    body.innerHTML = `<div class="row" style="margin-bottom:8px;font-size:13px">
+        <button class="btn small ${chat.scope === "concept" ? "primary" : ""}" data-scope="concept">This concept</button>
+        <button class="btn small ${chat.scope === "all" ? "primary" : ""}" data-scope="all">All</button></div>`
+      + (items.length ? items.map(c => {
+          const last = c.messages[c.messages.length - 1];
+          return `<button class="conv" data-conv="${esc(c.id)}">${esc(c.messages[0]?.text || "")}
+            <small>${esc(c.conceptTitle)} · ${c.awaitingReply ? "waiting for an answer" : `${c.messages.length} messages`} · ${new Date(last.at).toLocaleString()}</small></button>`;
+        }).join("")
+        : `<p style="color:var(--muted)">No questions yet. Ask below, or highlight any text on the page and choose “Ask about this”.</p>`);
+    body.querySelectorAll("[data-scope]").forEach(b => b.onclick = async () => { chat.scope = b.dataset.scope; await loadChatList(); renderChat(); });
+    body.querySelectorAll("[data-conv]").forEach(b => b.onclick = () => openConversation(b.dataset.conv));
+  }
+  renderCompose();
+}
+
+function renderCompose() {
+  const el = $("chatCompose");
+  const d = chat.draft || {};
+  const following = chat.convId && chat.conv;
+  const chipText = d.quote ? `About: “${d.quote}”` : d.factIndex != null ? `About fact ${d.factIndex + 1}` : "";
+  const target = following ? "Follow up" : `Ask about ${current?.concept.title || "this"}`;
+  const banner = !agents.connected && !(following && chat.conv.awaitingReply) ? connectPrompt("questions") : "";
+  el.innerHTML = `${banner}${!following && chipText ? `<div class="chip"><span>${esc(chipText)}</span><button class="btn small" id="chipX">×</button></div>` : ""}
+    <textarea id="chatInput" placeholder="${esc(target)}…" ${following && chat.conv.awaitingReply ? "disabled" : ""}></textarea>
+    <div class="row" style="justify-content:flex-end"><button class="btn primary" id="chatSend" ${following && chat.conv.awaitingReply ? "disabled" : ""}>Send</button></div>`;
+  if ($("chipX")) $("chipX").onclick = () => { chat.draft = null; renderCompose(); };
+  const send = () => {
+    const text = $("chatInput").value.trim();
+    if (text) ask({ ...(following ? { conversationId: chat.convId } : chat.draft || {}), text });
+  };
+  $("chatSend").onclick = send;
+  $("chatInput").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+  if (!chat.min) setTimeout(() => $("chatInput")?.focus(), 0);
+}
+
+/** Opens the chat on a new question, optionally anchored to a quote or a fact. */
+function compose(draft) {
+  chat.draft = draft; chat.convId = null; chat.conv = null; chat.min = false;
+  renderChat();
+}
+
+/** Sends a question (new or follow-up) and opens its conversation. */
+async function ask({ text, quote = null, factIndex = null, conversationId = null }) {
+  try {
+    const r = await api("/api/questions", { method: "POST", body: { conceptId: current.concept.id, text, quote, factIndex, conversationId } });
+    const asked = r.events.find(e => e.type === "QuestionAsked");
+    const id = conversationId || JSON.parse(asked.payloadJson).conversationId;
+    chat.draft = null; chat.min = false;
+    await openConversation(id);
+  } catch (e) { toast(e.data?.message || e.message); }
+}
+
+async function openConversation(id) {
+  chat.convId = id;
+  chat.conv = await api(`/api/conversations/${encodeURIComponent(id)}`);
+  renderChat();
+}
+
+async function loadChatList() {
+  const q = chat.scope === "concept" && current ? `?concept=${encodeURIComponent(current.concept.id)}` : "";
+  chat.list = await api(`/api/conversations${q}`).catch(() => []);
+}
+
+async function refreshChat(answered) {
+  await loadChatList();
+  if (chat.convId) chat.conv = await api(`/api/conversations/${encodeURIComponent(chat.convId)}`).catch(() => chat.conv);
+  if (answered && chat.min) chat.unread = true;
+  renderChat();
+}
+
+// ---------- select text to ask about it ----------
+document.addEventListener("mouseup", e => {
+  if (e.target.closest("#askSel, #chat .chat-compose, #quiz")) return;
+  setTimeout(() => {
+    const sel = window.getSelection();
+    const text = sel && !sel.isCollapsed ? sel.toString().trim() : "";
+    const btn = $("askSel");
+    const inPage = sel && sel.rangeCount && sel.getRangeAt(0).commonAncestorContainer.parentElement?.closest("#note, #chat .chat-body, .tip");
+    if (!text || text.length < 3 || text.length > 2000 || !inPage || !current) return btn.classList.add("hidden");
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    btn.style.left = `${r.left + window.scrollX}px`;
+    btn.style.top = `${r.bottom + window.scrollY + 6}px`;
+    btn.classList.remove("hidden");
+    btn.onclick = () => { btn.classList.add("hidden"); sel.removeAllRanges(); compose({ quote: text }); };
+  }, 0);
+});
+document.addEventListener("mousedown", e => { if (!e.target.closest("#askSel")) $("askSel").classList.add("hidden"); });
+
+// ---------- quiz ----------
+async function startQuiz() {
+  const c = current.concept, questions = c.recallQuestions || [];
+  if (!questions.length) return request("recall");
+  let i = 0, right = 0;
+  const box = $("quiz");
+  const show = revealed => {
+    if (i >= questions.length) {
+      box.innerHTML = `<div class="box"><h2>${right} of ${questions.length}</h2>
+        <p style="color:var(--muted)">Your answers are saved to your learning history.</p>
+        <div class="row"><button class="btn primary" id="qDone">Done</button><button class="btn" id="qMore">Ask for new questions</button></div></div>`;
+      $("qDone").onclick = () => box.classList.add("hidden");
+      $("qMore").onclick = () => { box.classList.add("hidden"); request("recall"); };
+      return;
+    }
+    const q = questions[i];
+    const tested = q.factIndexes.map(n => current.facts.find(f => f.index === n)).filter(Boolean);
+    box.innerHTML = `<div class="box"><div style="color:var(--muted);font-size:13px">${esc(c.title)} · question ${i + 1} of ${questions.length}</div>
+      <h2 style="margin:8px 0">${esc(q.prompt)}</h2>
+      <textarea id="qAnswer" placeholder="Your answer (optional)" ${revealed ? "disabled" : ""}></textarea>
+      ${revealed ? `<div class="answer"><b>Answer:</b> ${esc(q.answer)}
+          <div style="font-size:12px;color:var(--muted);margin-top:6px">From: ${tested.map(f => f.html).join(" · ")}</div></div>
+        <div class="row"><button class="btn primary" id="qRight">I got it</button><button class="btn" id="qWrong">I missed it</button></div>`
+      : `<div class="row"><button class="btn primary" id="qShow">Show answer</button><button class="btn" id="qClose">Close</button></div>`}</div>`;
+    if (!revealed) {
+      $("qShow").onclick = () => { box.dataset.answer = $("qAnswer").value; show(true); };
+      $("qClose").onclick = () => box.classList.add("hidden");
+      $("qAnswer").focus();
+    } else {
+      $("qAnswer").value = box.dataset.answer || "";
+      const grade = async correct => {
+        if (correct) right++;
+        await api("/api/learner/recall-answers", { method: "POST", body: {
+          conceptId: c.id, answer: box.dataset.answer || "(no written answer)", questionIndex: q.index, correct } }).catch(() => {});
+        i++; show(false);
+      };
+      $("qRight").onclick = () => grade(true);
+      $("qWrong").onclick = () => grade(false);
+    }
+  };
+  box.classList.remove("hidden");
+  show(false);
 }
 
 // ---------- live updates ----------
@@ -722,17 +1080,34 @@ function connectEvents() {
     if (!interesting.length) return;
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(async () => {
-      const types = [...new Set(interesting.map(e => e.type))];
-      toast(`Updated: ${types.slice(0, 3).join(", ")}${types.length > 3 ? "…" : ""}`);
+      const message = describe(interesting);
+      if (message) toast(message);
       await refreshCurrent();
       if (!$("agents").classList.contains("hidden")) renderAgents();
+      if (interesting.some(e => e.type === "ReplyPosted" || e.type === "QuestionAsked")) await refreshChat(interesting.some(e => e.type === "ReplyPosted"));
     }, 300);
   });
-  es.addEventListener("store", () => boot());
+  es.addEventListener("store", () => boot().then(loadAgents));
+  es.addEventListener("agents", ev => applyAgents(JSON.parse(ev.data)));
   es.onerror = () => { es.close(); setTimeout(connectEvents, 2000); };
 }
 
-boot().then(refreshLearner).then(connectEvents);
+// Plain-language summary of what changed, or null for changes the learner made themselves.
+function describe(events) {
+  const count = t => events.filter(e => e.type === t).length;
+  const concept = e => e.stream.startsWith("concept:") ? e.stream.slice(8) : null;
+  const named = t => { const e = events.find(x => x.type === t); const id = e && concept(e); return id === current?.concept.id ? current.concept.title : id; };
+  if (count("ReplyPosted")) return "An agent answered your question.";
+  if (count("FactsReplaced")) return `New facts on ${named("FactsReplaced")}.`;
+  if (count("TeachingReplaced")) return `${named("TeachingReplaced")} has new teaching.`;
+  if (count("FactsChecked")) return `${named("FactsChecked")} was independently checked.`;
+  if (count("RecallQuestionsReplaced")) return `Quiz questions are ready for ${named("RecallQuestionsReplaced")}.`;
+  if (count("ConceptStubCreated")) return `${count("ConceptStubCreated")} new concept${count("ConceptStubCreated") > 1 ? "s" : ""} to explore.`;
+  if (count("EvidenceMarkedStale")) return "Some evidence no longer matches its source.";
+  return null;
+}
+
+boot().then(refreshLearner).then(loadAgents).then(connectEvents);
 </script>
 </body>
 </html>

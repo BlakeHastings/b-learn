@@ -96,6 +96,18 @@ public sealed class Evidence : AggregateRoot
         }
     }
 
+    /// <summary>True once <see cref="Remove"/> succeeded; the repository deletes the record.</summary>
+    public bool Removed { get; private set; }
+
+    /// <summary>Deletes evidence that nothing cites. Cited evidence stays, so facts and edges never lose their support.</summary>
+    public void Remove(IGraphReader graph)
+    {
+        if (graph.EvidenceCited(Id))
+            throw new DomainViolation("evidence-cited", $"Evidence '{Id}' is cited by a fact or edge. Remove those citations first.");
+        Removed = true;
+        Raise(new EvidenceRemoved(Id));
+    }
+
     /// <summary>An independent session confirms the quote from its own retrieval.</summary>
     public void Reconfirm(string snapshotText, string snapshotHash, string session)
     {

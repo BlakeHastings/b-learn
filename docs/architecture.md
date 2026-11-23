@@ -52,19 +52,20 @@ A store is a single SQLite file, for example `union-contracts.blearn`, chosen by
 
 `blearn` with no arguments starts the UI on a store picker: recent stores (remembered in the user profile), open a file, or create a new one with a name, location and starting question.
 
-`blearn export markdown <folder>` writes a one-way markdown copy (one file per concept, with frontmatter and wikilinks) for reading in Obsidian or committing a snapshot to git. Edits to the export are not read back; changes go through commands so they pass the invariants.
+`blearn export post <folder>` writes a one-way markdown copy (one file per concept, with frontmatter and wikilinks) for reading in Obsidian or committing a snapshot to git. Edits to the export are not read back; changes go through commands so they pass the invariants.
 
 ## Domain
 
 ### Aggregates
 
-| Aggregate | Example commands | Invariants it enforces |
+| Aggregate | Domain operations | Invariants it enforces |
 |---|---|---|
-| **Graph** (one per store) | `CreateStub`, `AddEdge`, `RemoveEdge`, `RenameConcept` | Names unique after normalization; one relationship per pair of concepts; no downward cycles; edges cite evidence |
-| **Concept** | `SubmitFacts`, `SubmitTeaching`, `AddAlias` | Gloss is one line, at most 200 characters, no links; every fact cites evidence; teaching links only to related concepts |
-| **Evidence** | `CaptureEvidence`, `VerifyEvidence`, `ReconfirmEvidence`, `MarkStale` | Source is registered for the store; quote appears in the snapshot; trust level transitions are valid |
-| **Store settings** | `RegisterSource`, `SetPrivate`, `SetRoot` | Root concept exists; source names unique |
-| **Learner** | `RecordVisit`, `MarkKnown`, `SubmitRecall` | Visits reference existing concepts |
+| **Graph** (one per store) | `AddEdge`, `RemoveEdge`, `AttachEvidence` | Names unique after normalization; one relationship per pair of concepts; no downward cycles; edges cite evidence |
+| **Concept** | `CreateStub`, `Rename`, `ChangeGloss`, `AddAlias`, `ReplaceFacts`, `ReplaceTeaching`, `ReplaceRecallQuestions`, `RecordCheck`, requests | Gloss is one line, at most 200 characters, no links; every fact cites evidence; teaching links only to related concepts; quiz questions test existing facts; a check gives a verdict for every fact, comes from a session that captured none of the cited evidence, and flags only passages that appear in the gloss or teaching. New facts clear the check and the quiz |
+| **Conversation** | `Start`, `Ask`, `Reply` | Anchored to an existing concept, fact or highlighted passage; one agent reply per learner question; replies link only to existing concepts |
+| **Evidence** | `Capture`, `Verify` (or mark stale), `Reconfirm`, `Remove` | Source is registered for the store; quote appears in the snapshot; trust level transitions are valid; cited evidence cannot be removed |
+| **Store settings** | `Create`, `RegisterSource`, `SetPrivate` | Root concept exists; source names unique |
+| **Learner** | `RecordVisit`, `MarkKnown`, `UnmarkKnown`, `AnswerRecall` | Visits reference existing concepts |
 
 Graph-wide invariants (no cycles, unique names) span many concepts. Rather than load the whole graph, the Graph aggregate receives a narrow read interface (for example "is there a downward path from B to A?") answered by a SQL query inside the same transaction.
 
@@ -116,12 +117,12 @@ A store can require a minimum trust level per source. Re-verification marks evid
 
 Both channels live in the store file.
 
-**Event log.** Every accepted command appends its domain events with an increasing sequence number. Readers each keep their own position, so everyone sees everything. The UI uses it for live updates; agents can follow it with `blearn events wait --after <n>`.
+**Event log.** Every accepted command appends its domain events with an increasing sequence number. Readers each keep their own position, so everyone sees everything. The UI uses it for live updates; agents can follow it with `blearn event list --after <n> --wait`.
 
 **Work queue.** Competing consumers: each message is delivered to exactly one agent.
 
-- `blearn queue receive <queue> --wait` blocks until a message is ready, claims it with a lease in one transaction, prints it with a receipt, and exits. SQLite's single-writer locking guarantees no two agents claim the same message.
-- `blearn queue ack <receipt>` completes it; `nack` returns it immediately.
+- `blearn lease post <queue> --wait` blocks until a message is ready, claims it with a lease in one transaction, prints it with a receipt, and exits. SQLite's single-writer locking guarantees no two agents claim the same message.
+- `blearn lease delete <receipt>` completes it; `lease patch <receipt> --release` returns it immediately. The familiar `queue receive`, `queue ack` and `queue nack` work as aliases.
 - An expired lease makes the message available again. After a maximum number of attempts it moves to a dead-letter list.
 - A deduplication key (for example `teach:pointer`) stops repeated requests from queuing duplicate work.
 - `--wait` polls a few times a second, since SQLite cannot notify other processes. `--timeout` exits with a distinct code so the agent knows to wait again.
@@ -132,24 +133,61 @@ Both channels live in the store file.
 |---|---|---|
 | Reach a stub, or "research this" | `ExpansionRequested` | `expand` |
 | "I want to learn about this" on a fact | `TeachingRequested` | `teach` |
-| Ask a question on a concept | `QuestionAsked` | `ask` |
-| "Test me" | `RecallRequested` | `recall` |
+| Ask in the chat, highlight text and "Ask about this", or "Teach me" on a fact | `QuestionAsked` | `ask` (ahead of other work) |
+| "Test me" with no quiz yet | `RecallRequested` | `recall` |
+| (automatic) new facts or teaching | `FactsReplaced`, `TeachingReplaced` | `check` (behind other work) |
 
-## CLI
+A released message waits a minute per attempt before redelivery, so the agent that handed it back does not receive it again at once.
 
-Commands follow `blearn <resource> <action>` and print JSON. A command returns the events it emitted, or the invariant it violated with a non-zero exit code.
+## Connecting agents
 
-| Resource | Actions |
-|---|---|
-| `store` | `create`, `info`, `recent`, `export` |
-| `source` | `register`, `list` |
-| `concept` | `get`, `list`, `search`, `stub`, `submit-facts`, `submit-teaching`, `rename` |
-| `edge` | `add`, `remove` |
-| `evidence` | `capture`, `fetch`, `verify`, `reconfirm` |
-| `queue` | `receive --wait`, `ack`, `nack`, `list`, `dead-letters` |
-| `events` | `list`, `wait --after <n>` |
-| `learner` | `journey`, `known`, `recall` |
-| `agent` | `brief`: prints the agent loop, evidence rules, the store's sources and privacy policy |
+**Presence.** An agent counts as connected while it waits for work (`lease post`, which polls several times a second) or holds a lease and has been active in the last 15 minutes. Finishing or releasing work and any command run with a session id also count as signs of life. Presence lives in an `agents` table, not the event log: it is operational state, not domain history. The UI receives it over the same server-sent event stream whenever it changes, shows it as a status pill, and prompts the learner to connect wherever they would otherwise wait on nobody.
+
+**One-click connection.** For harnesses b-learn knows how to start (Claude Code today), "Connect" starts an `AgentRunner` in the server. It claims one message at a time and runs the harness headless on it with a fresh context:
+
+- Permissions are an allowlist that never prompts: `blearn` commands, web reading, and files in a per-store work folder. `blearn` is put on the agent's PATH and the store and session are in its environment, so the natural command is exactly the allowed one.
+- Progress is parsed from the harness's streamed output into plain activity ("Reading learn.microsoft.com", "Writing facts") shown in the UI.
+- The runner does not trust the agent's own success report: before marking work done it checks that the outcome is in the store (a reply posted, the concept researched, quiz questions or a check saved), and hands the work back with the reason otherwise.
+- It reports in every 30 seconds while working; work held by a started agent that has been silent for 2 minutes is redelivered without waiting for its lease.
+- Transcripts of the last 50 tasks are kept under `%LOCALAPPDATA%\b-learn\agent-work\<store>\logs`.
+- The choice is remembered (`%APPDATA%\b-learn\settings.json`), so the agent reconnects whenever a store opens.
+
+Any other agent connects by pasting the instruction from the Agents panel; it shows as connected the same way.
+
+## CLI and HTTP API
+
+Both adapters expose the same resources with HTTP verbs. The CLI form is `blearn <resource> <verb>` and prints JSON; the web server answers the same request under `/api`. A command returns the events it emitted (exit 0, HTTP 200), or the invariant it violated (exit 1, HTTP 422).
+
+Actions that are not edits become resources you create: a learner request, a verification, a confirmation, a lease. Events keep specific past-tense names (`FactsReplaced`, `GlossChanged`), so the log says what happened rather than "updated".
+
+| Resource | CLI verbs | HTTP |
+|---|---|---|
+| store | `post`, `get`, `list` (recent), `patch --private` | `POST /stores`, `GET`/`PATCH /store` |
+| source | `post`, `list` | `/sources` |
+| concept | `get`, `list [--search] [--status]`, `post`, `patch` (title, gloss, aliases) | `/concepts`, `/concepts/{id}` |
+| facts | `put` (replaces all facts) | `PUT /concepts/{id}/facts` |
+| teaching | `put` | `PUT /concepts/{id}/teaching` |
+| request | `post --kind expand|teach|recall` | `POST /concepts/{id}/requests` |
+| recall-question | `put` (replaces the quiz) | `PUT /concepts/{id}/recall-questions` |
+| check | `put --session` | `PUT /concepts/{id}/check` |
+| question | `post [--quote] [--fact] [--conversation]` | `POST /questions` |
+| reply | `post --session` | `POST /conversations/{id}/replies` |
+| conversation | `get`, `list [--concept] [--waiting]` | `GET /conversations`, `/conversations/{id}` |
+| page | `get --url` (the text blearn would store; saves nothing) | `GET /pages?url=` |
+| neighbor, graph | `list`, `get` | `GET /concepts/{id}/neighbors`, `/graph` |
+| edge | `get`, `post`, `delete` | `/edges`, `/edges/{from}/{to}` |
+| edge-evidence | `post` | `POST /edges/{from}/{to}/evidence` |
+| evidence | `get`, `list`, `post` (snapshot or url), `delete` (only when uncited) | `/evidence`, `/evidence/{id}` |
+| snapshot | `get` | `GET /snapshots/{hash}` |
+| verification, confirmation | `post` | `POST /evidence/{id}/verifications`, `/confirmations` |
+| lease | `post [--wait]`, `delete` (done), `patch --release` | `POST /queues/{q}/leases`, `/leases/{receipt}` |
+| message | `list [--state]` | `GET /messages` |
+| event | `list [--after] [--wait]` | `GET /events`, `GET /events/stream` (server-sent events) |
+| visit, known, recall-answer | `post`/`list`, `put`/`delete`/`list`, `post` | `/learner/visits`, `/learner/known/{id}`, `/learner/recall-answers` |
+| import, export | `post <folder>` | `POST /imports`, `/exports` |
+| brief | `get`: the agent loop, evidence rules, the store's sources and privacy policy | `GET /brief` |
+
+Only the CLI waits (`--wait`); over HTTP a lease request on an empty queue answers 204 and the UI follows `/events/stream`.
 
 A write is rejected if the aggregate changed since it was read (each aggregate has a version number).
 
@@ -157,7 +195,8 @@ A write is rejected if the aggregate changed since it was read (each aggregate h
 
 - **Researcher:** finds sources and captures evidence. The model's own beliefs are search leads, never evidence.
 - **Writer:** writes facts only from captured evidence, and teaching only from those facts.
-- **Checker:** a fresh agent that sees each fact with its quote, and the teaching text with the Facts list. It records whether each quote supports its fact, flags teaching that adds unsupported facts, and flags evidence used outside its source's scope.
+- **Checker:** a fresh session that sees each fact with its quotes and records a verdict per fact (supports, partial, unsupported) and flags on gloss or teaching passages no fact supports (`check put`). Code enforces a verdict for every fact, a different session from the evidence's captor, and verbatim excerpts. Whether a quote really supports a fact stays a judgment call.
+- **Tutor:** answers learner questions in the conversation from the graph's facts, researching first when facts are missing.
 
 "No source found" is a valid outcome: the claim is dropped, not filled in from memory.
 
@@ -172,10 +211,15 @@ A write is rejected if the aggregate changed since it was read (each aggregate h
 
 - **Store picker** on start.
 - **Concept page:** gloss, Summary, Explanation, Facts with citation markers (hover shows the quote, source and trust level), and neighbors grouped as Deeper, Sideways and Up.
+- **Inline links:** mentions of related concepts in the gloss, teaching and facts are linked automatically when the page is drawn (first mention of each, longest name wins, code untouched), so the text itself is the way to dive in. Agent replies in the chat link any concept in the store.
 - **Nested tooltips:** links inside tooltips open further tooltips, each showing direction relative to the note the link sits in.
+- **Chat:** a floating, minimizable window with the learner's conversations for the current concept (or all). Highlighting text anywhere on the page offers "Ask about this"; "Teach me" on a fact asks about that fact. Answers arrive live.
+- **Quiz:** "Test me" walks through the concept's quiz questions, reveals each answer with the facts it tests, and records the learner's self-grade.
+- **Check marks:** each fact shows the checker's verdict; unsupported teaching passages are listed above the summary.
 - **Journey trail** with depth, and a "back from X" prompt when climbing up.
 - **Graph view:** centered on the current concept, with up-neighbors above, down-neighbors below and sideways left and right, two or three steps out. Stubs are dashed; concepts with queued work show a loader. The layered layout relies on downward edges having no cycles.
-- **Agent connection panel:** the one-line instruction to paste into a harness, and which agents are currently receiving work.
+- **Agent connection panel:** the one-line instruction to paste into a harness, queued and failed work, and the store's sources of truth with a form to add one.
+- **Reaching a stub** queues its research automatically.
 
 ## Distribution
 
@@ -188,8 +232,7 @@ A write is rejected if the aggregate changed since it was read (each aggregate h
 ## Not built yet
 
 - **Distribution.** Self-contained binaries, install scripts, the npm wrapper and release automation. Today it runs with the .NET SDK.
-- **Checker verdicts.** The checker role is defined, but there is no command yet to record its per-citation verdict (supports / partial / does not support) or its flags on teaching text.
 - **Minimum trust as a gate.** A source's minimum trust level marks facts as not verified in views; it does not block submission.
 - **PDF and other binary sources.** `evidence fetch` handles web pages and text files; other formats must be captured as text through the harness.
-- **Recall flow.** `recall` requests queue work and answers can be recorded, but there is no quiz UI yet.
+- **Streaming chat and more one-click harnesses.** Questions reach agents through the work queue (answers arrive in seconds when an agent is connected, but not word by word), and only Claude Code can be started with one click. The recommended next step is the Agent Client Protocol (ACP): the server starts the learner's own agent (Claude Code via Zed's adapter, Codex via codex-acp, Gemini CLI, and others) over stdio, sends each chat message as a `session/prompt`, and streams `session/update` back to the browser, with b-learn's commands exposed to the agent as tools. The queue stays for research and checks.
 - **Store-level policy for private stores** beyond the flag and the brief (for example, restricting which source systems may be registered).

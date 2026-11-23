@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\BLearn.Application\BLearn.Application.csproj" />
+    <ProjectReference Include="..\..\src\BLearn.Infrastructure.Agents\BLearn.Infrastructure.Agents.csproj" />
     <ProjectReference Include="..\..\src\BLearn.Infrastructure.Sqlite\BLearn.Infrastructure.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\BLearn.Infrastructure.Markdown\BLearn.Infrastructure.Markdown.csproj" />
     <ProjectReference Include="..\..\src\BLearn.Infrastructure.Fetching\BLearn.Infrastructure.Fetching.csproj" />

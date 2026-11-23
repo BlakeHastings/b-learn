@@ -11,6 +11,12 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
 {
     public const int MaxAttempts = 5;
 
+    /// <summary>
+    /// Agents b-learn starts report in every few seconds while working, so silence this long means the
+    /// process died; its work becomes available without waiting for the lease to run out.
+    /// </summary>
+    public static readonly TimeSpan ManagedSilence = TimeSpan.FromMinutes(2);
+
     internal const string Select =
         "SELECT id, queue, dedup_key, payload, state, attempts, created_at, lease_until, receipt, received_by, last_error FROM messages";
 
@@ -27,7 +33,7 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
         {
             var now = Sql.UnixMs(clock.Now);
             var queueFilter = "";
-            (string, object?)[] args = [("@now", now)];
+            (string, object?)[] args = [("@now", now), ("@stale", now - (long)ManagedSilence.TotalMilliseconds)];
             if (queues.Count > 0)
             {
                 var (clause, qArgs) = Sql.In("q", queues);
@@ -39,11 +45,14 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
             {
                 var candidate = c.Query($"""
                     SELECT id, attempts FROM messages
-                    WHERE (state = 'ready' OR (state = 'leased' AND lease_until < @now)) {queueFilter}
+                    WHERE ((state = 'ready' AND (lease_until IS NULL OR lease_until <= @now))
+                        OR (state = 'leased' AND (lease_until < @now OR received_by IN (
+                            SELECT session FROM agents WHERE managed = 1 AND (left_at IS NOT NULL OR last_seen < @stale))))) {queueFilter}
                     ORDER BY priority DESC, id LIMIT 1
                     """, r => (Id: r.GetInt64(0), Attempts: (int)r.GetInt64(1)), args).FirstOrDefault();
                 if (candidate.Id == 0)
                 {
+                    SqliteAgentPresence.Upsert(c, receiver, now, null, null, null, System.Text.Json.JsonSerializer.Serialize(queues));
                     c.Exec("COMMIT");
                     return null;
                 }
@@ -59,6 +68,7 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
                     WHERE id = @id
                     """, ("@until", now + (long)lease.TotalMilliseconds), ("@r", receipt), ("@by", receiver), ("@id", candidate.Id));
                 var msg = c.Query($"{Select} WHERE id = @id", Map, ("@id", candidate.Id)).Single();
+                SqliteAgentPresence.Upsert(c, receiver, now, null, null, null, System.Text.Json.JsonSerializer.Serialize(queues));
                 c.Exec("COMMIT");
                 return msg;
             }
@@ -73,18 +83,32 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
     public bool Ack(string receipt)
     {
         using var c = Sql.Open(path);
+        Touch(c, receipt);
         return c.Exec("UPDATE messages SET state = 'done', lease_until = NULL WHERE receipt = @r AND state = 'leased'", ("@r", receipt)) == 1;
     }
+
+    /// <summary>Finishing or releasing work is a sign of life from the agent holding it.</summary>
+    private void Touch(SqliteConnection c, string receipt)
+    {
+        if (c.Scalar("SELECT received_by FROM messages WHERE receipt = @r", ("@r", receipt)) is string session)
+            SqliteAgentPresence.Upsert(c, session, Sql.UnixMs(clock.Now), null, null, null, null);
+    }
+
+    /// <summary>A released message waits <see cref="ReleaseBackoff"/> per attempt before redelivery, so the releasing agent does not get it straight back.</summary>
+    public static readonly TimeSpan ReleaseBackoff = TimeSpan.FromMinutes(1);
 
     public bool Nack(string receipt, string? error)
     {
         using var c = Sql.Open(path);
+        Touch(c, receipt);
+        var now = Sql.UnixMs(clock.Now);
         return c.Exec($"""
             UPDATE messages
             SET state = CASE WHEN attempts >= {MaxAttempts} THEN 'dead' ELSE 'ready' END,
-                lease_until = NULL, receipt = NULL, last_error = @e
+                lease_until = CASE WHEN attempts >= {MaxAttempts} THEN NULL ELSE @now + attempts * @backoff END,
+                receipt = NULL, last_error = @e
             WHERE receipt = @r AND state = 'leased'
-            """, ("@r", receipt), ("@e", error)) == 1;
+            """, ("@r", receipt), ("@e", error), ("@now", now), ("@backoff", (long)ReleaseBackoff.TotalMilliseconds)) == 1;
     }
 
     public IReadOnlyList<QueueMessage> List(bool includeDone = false)

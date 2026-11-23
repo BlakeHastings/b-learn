@@ -21,4 +21,10 @@ public interface IGraphReader
     bool DownPathExists(string from, string to);
 
     bool EvidenceExists(string id);
+
+    /// <summary>True when any fact or edge cites the evidence.</summary>
+    bool EvidenceCited(string id);
+
+    /// <summary>The session that captured the evidence, or null when it does not exist.</summary>
+    string? EvidenceCapturedBy(string id);
 }

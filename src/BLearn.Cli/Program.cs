@@ -21,6 +21,10 @@ namespace BLearn.Cli
         public const int NotFound = 4;
     }
 
+    /// <summary>
+    /// The CLI adapter. Commands are <c>blearn &lt;resource&gt; &lt;verb&gt;</c> with the HTTP verbs
+    /// get, list, post, put, patch and delete, mirroring the HTTP API.
+    /// </summary>
     public static class Cli
     {
         private static readonly JsonSerializerOptions Pretty = new(Json.Options) { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -33,12 +37,12 @@ namespace BLearn.Cli
             {
                 argv = HoistGlobalOptions(argv);
                 if (argv.Length == 0) return await Serve(new CliArgs([]));
-                var a = new CliArgs(argv.Skip(2).ToArray());
-                var (resource, action) = (argv[0], argv.Length > 1 ? argv[1] : "");
-                if (resource is "help" or "--help" or "-h") return Help();
+                var (resource, verb) = (argv[0], argv.Length > 1 ? argv[1] : "");
+                if (resource is "help" or "--help" or "-h") return argv.Length > 1 && !argv[1].StartsWith("--") ? Help(argv[1]) : Help();
+                if (verb is "help" or "--help" or "-h" || argv.Contains("--help")) return Help(resource);
                 if (resource == "serve") return await Serve(new CliArgs(argv.Skip(1).ToArray()));
-                var code = await Dispatch(resource, action, a);
-                return code;
+                (resource, verb) = Alias(resource, verb);
+                return await Dispatch(resource, verb, new CliArgs(argv.Skip(2).ToArray()));
             }
             catch (UsageException ex)
             {
@@ -51,9 +55,18 @@ namespace BLearn.Cli
             }
         }
 
+        /// <summary>Familiar queue words kept as aliases for the lease resource.</summary>
+        private static (string, string) Alias(string resource, string verb) => (resource, verb) switch
+        {
+            ("queue", "receive") => ("lease", "post"),
+            ("queue", "ack") => ("lease", "delete"),
+            ("queue", "nack") => ("lease", "release"),
+            _ => (resource, verb),
+        };
+
         /// <summary>
         /// Moves global options (--store, --session) that appear before the command to the end, so
-        /// "blearn --store F queue receive" and "blearn queue receive --store F" mean the same thing.
+        /// "blearn --store F lease post" and "blearn lease post --store F" mean the same thing.
         /// </summary>
         private static string[] HoistGlobalOptions(string[] argv)
         {
@@ -79,51 +92,56 @@ namespace BLearn.Cli
             return rest.ToArray();
         }
 
-        private static async Task<int> Dispatch(string resource, string action, CliArgs a)
+        private static async Task<int> Dispatch(string resource, string verb, CliArgs a)
         {
-            switch (resource, action)
+            // Commands that need no open store.
+            switch (resource, verb)
             {
-                case ("store", "create"): return StoreCreate(a);
-                case ("store", "recent"): a.EnsureAllUsed(); return Emit(RecentStores.Load());
-                case ("edge", "types"):
+                case ("store", "post"): return StorePost(a);
+                case ("store", "list"): a.Flag("recent"); a.EnsureAllUsed(); return Emit(RecentStores.Load());
+                case ("page", "get"): return await PageGet(a);
+                case ("edge-type", "list"):
                     a.EnsureAllUsed();
                     return Emit(EdgeTypes.List.Select(t => new { t.Name, direction = t.Direction.ToString().ToLowerInvariant(), t.InverseLabel, t.Meaning }));
             }
 
             using var store = OpenStore(a);
+            if ((a.Opt("session") ?? Environment.GetEnvironmentVariable("BLEARN_SESSION")) is { Length: > 0 } alive && !(resource == "lease" && verb == "post"))
+                store.Agents.Heartbeat(alive);
             var cmd = new BLearnCommands(store, Clock, new SourceFetcher(SourceFetcher.CreateClient()));
             var q = store.Queries;
 
-            switch (resource, action)
+            switch (resource, verb)
             {
-                // ----- store and sources -----
-                case ("store", "info"): a.EnsureAllUsed(); return Emit(q.GetInfo());
-                case ("store", "export"):
+                // ----- store, sources, import, export -----
+                case ("store", "get"): a.EnsureAllUsed(); return Emit(q.GetInfo());
+                case ("store", "patch"):
+                {
+                    var value = a.Opt("private");
+                    a.EnsureAllUsed();
+                    bool? isPrivate = value is null ? null : bool.TryParse(value, out var b) ? b : throw new UsageException("--private must be true or false.");
+                    return Result(cmd.PatchStore(isPrivate));
+                }
+                case ("source", "post"):
+                {
+                    var r = cmd.PostSource(a.At(0, "source name"), a.Req("system"), a.Req("scope"), a.Opt("min-trust") ?? "captured");
+                    a.EnsureAllUsed();
+                    return Result(r);
+                }
+                case ("source", "list"): a.EnsureAllUsed(); return Emit(q.GetInfo().Sources);
+                case ("import", "post"):
+                {
+                    var (notes, problems) = LegacyMarkdownReader.ReadFolder(a.At(0, "markdown folder"));
+                    a.EnsureAllUsed();
+                    if (problems.Count > 0) return Emit(new { accepted = false, violation = "parse-failed", problems }, ExitCodes.Rejected);
+                    return Result(cmd.PostImport(notes));
+                }
+                case ("export", "post"):
                 {
                     var folder = a.At(0, "output folder");
                     a.EnsureAllUsed();
                     return Emit(new { exported = MarkdownExporter.Export(q, folder), folder = Path.GetFullPath(folder) });
                 }
-                case ("store", "import-markdown"):
-                {
-                    var (notes, problems) = LegacyMarkdownReader.ReadFolder(a.At(0, "markdown folder"));
-                    a.EnsureAllUsed();
-                    if (problems.Count > 0) return Emit(new { accepted = false, violation = "parse-failed", problems }, ExitCodes.Rejected);
-                    return Result(cmd.ImportLegacy(notes));
-                }
-                case ("store", "set-private"):
-                {
-                    var value = a.At(0, "true or false");
-                    a.EnsureAllUsed();
-                    return Result(cmd.SetPrivate(bool.TryParse(value, out var b) ? b : throw new UsageException("Expected true or false.")));
-                }
-                case ("source", "register"):
-                {
-                    var r = cmd.RegisterSource(a.At(0, "source name"), a.Req("system"), a.Req("scope"), a.Opt("min-trust") ?? "captured");
-                    a.EnsureAllUsed();
-                    return Result(r);
-                }
-                case ("source", "list"): a.EnsureAllUsed(); return Emit(q.GetInfo().Sources);
 
                 // ----- concepts -----
                 case ("concept", "get"):
@@ -132,111 +150,157 @@ namespace BLearn.Cli
                     a.EnsureAllUsed();
                     return q.GetConcept(id) is { } c ? Emit(c) : NotFound($"Concept '{id}' does not exist.");
                 }
-                case ("concept", "list"): { var s = a.Opt("status"); a.EnsureAllUsed(); return Emit(q.ListConcepts(s)); }
-                case ("concept", "search"):
+                case ("concept", "list"):
                 {
-                    var text = string.Join(' ', a.Positional);
-                    if (text.Length == 0) throw new UsageException("Missing search text.");
-                    var limit = a.Int("limit") ?? 20;
+                    var (status, search, limit) = (a.Opt("status"), a.Opt("search"), a.Int("limit") ?? 20);
                     a.EnsureAllUsed();
-                    return Emit(q.Search(text, limit));
+                    if (search is null) return Emit(q.ListConcepts(status));
+                    var found = q.Search(search, limit);
+                    return Emit(status is null ? found : found.Where(c => c.Status == status));
                 }
-                case ("concept", "neighbors"): { var id = a.At(0, "concept id"); a.EnsureAllUsed(); return Emit(q.Neighbors(id)); }
-                case ("concept", "graph"):
+                case ("concept", "post"):
+                {
+                    var from = a.Opt("from");
+                    var link = from is null ? null : new ConceptLink(from, a.Req("type"), a.List("evidence"));
+                    var r = cmd.PostConcept(new ConceptInput(a.Opt("id"), a.Req("title"), a.Req("gloss"), a.All("alias"), link));
+                    a.EnsureAllUsed();
+                    return Result(r);
+                }
+                case ("concept", "patch"):
+                {
+                    var r = cmd.PatchConcept(a.At(0, "concept id"), new ConceptPatch(a.Opt("title"), a.Opt("gloss"), a.All("add-alias")));
+                    a.EnsureAllUsed();
+                    return Result(r);
+                }
+                case ("facts", "put"):
+                {
+                    var id = a.At(0, "concept id");
+                    var facts = ReadJson<List<FactInput>>(a, "facts") ?? [];
+                    a.EnsureAllUsed();
+                    return Result(cmd.PutFacts(id, facts));
+                }
+                case ("teaching", "put"):
+                {
+                    var id = a.At(0, "concept id");
+                    var summary = a.Text("summary") ?? throw new UsageException("Missing --summary or --summary-file.");
+                    var explanation = a.Text("explanation") ?? throw new UsageException("Missing --explanation or --explanation-file.");
+                    a.EnsureAllUsed();
+                    return Result(cmd.PutTeaching(id, summary, explanation));
+                }
+                case ("request", "post"):
+                {
+                    var r = cmd.PostRequest(a.At(0, "concept id"), new RequestInput(a.Req("kind"), a.Int("fact"), a.Opt("text")));
+                    a.EnsureAllUsed();
+                    return Result(r);
+                }
+                case ("recall-question", "put"):
+                {
+                    var id = a.At(0, "concept id");
+                    var questions = ReadJson<List<RecallQuestionInput>>(a, "recall questions") ?? [];
+                    a.EnsureAllUsed();
+                    return Result(cmd.PutRecallQuestions(id, questions));
+                }
+                case ("check", "put"):
+                {
+                    var id = a.At(0, "concept id");
+                    var input = ReadJson<CheckInput>(a, "check") ?? new CheckInput([], []);
+                    var session = Session(a);
+                    a.EnsureAllUsed();
+                    return Result(cmd.PutCheck(id, input, session));
+                }
+
+                // ----- conversations -----
+                case ("question", "post"):
+                {
+                    var r = cmd.PostQuestion(new QuestionInput(a.At(0, "concept id"), a.Text("text") ?? throw new UsageException("Missing --text or --text-file."),
+                        a.Opt("quote"), a.Int("fact"), a.Opt("conversation")));
+                    a.EnsureAllUsed();
+                    return Result(r);
+                }
+                case ("reply", "post"):
+                {
+                    var id = a.At(0, "conversation id");
+                    var text = a.Text("text") ?? throw new UsageException("Missing --text or --text-file.");
+                    var r = cmd.PostReply(id, text, Session(a));
+                    a.EnsureAllUsed();
+                    return Result(r);
+                }
+                case ("conversation", "get"):
+                {
+                    var id = a.At(0, "conversation id");
+                    a.EnsureAllUsed();
+                    return q.GetConversation(id) is { } conv ? Emit(conv) : NotFound($"Conversation '{id}' does not exist.");
+                }
+                case ("conversation", "list"):
+                {
+                    var (concept, waiting, limit) = (a.Opt("concept"), a.Flag("waiting"), a.Int("limit") ?? 50);
+                    a.EnsureAllUsed();
+                    var list = q.ListConversations(concept, limit);
+                    return Emit(waiting ? list.Where(c => c.AwaitingReply) : list);
+                }
+
+                case ("neighbor", "list"): { var id = a.At(0, "concept id"); a.EnsureAllUsed(); return Emit(q.Neighbors(id)); }
+                case ("graph", "get"):
                 {
                     var id = a.At(0, "concept id");
                     var hops = a.Int("hops") ?? 2;
                     a.EnsureAllUsed();
                     return Emit(q.GraphAround(id, hops));
                 }
-                case ("concept", "stub"):
-                {
-                    var from = a.Opt("from");
-                    var link = from is null ? null : new StubLink(from, a.Req("type"), a.List("evidence"));
-                    var r = cmd.CreateStub(a.Opt("id"), a.Req("title"), a.Req("gloss"), a.All("alias"), link);
-                    a.EnsureAllUsed();
-                    return Result(r);
-                }
-                case ("concept", "rename"): { var r = cmd.Rename(a.At(0, "concept id"), a.Req("title")); a.EnsureAllUsed(); return Result(r); }
-                case ("concept", "alias"): { var r = cmd.AddAlias(a.At(0, "concept id"), a.At(1, "alias")); a.EnsureAllUsed(); return Result(r); }
-                case ("concept", "gloss"): { var r = cmd.ReviseGloss(a.At(0, "concept id"), a.Req("gloss")); a.EnsureAllUsed(); return Result(r); }
-                case ("concept", "facts"):
-                {
-                    var id = a.At(0, "concept id");
-                    var json = a.Opt("json") ?? (a.Opt("file") is { } f ? (f == "-" ? Console.In.ReadToEnd() : File.ReadAllText(f)) : null)
-                        ?? throw new UsageException("Provide facts with --file <path> or --json '<array>'.");
-                    a.EnsureAllUsed();
-                    List<FactInput> facts;
-                    try { facts = JsonSerializer.Deserialize<List<FactInput>>(json, Json.Options) ?? []; }
-                    catch (JsonException ex) { throw new UsageException($"Facts JSON is invalid: {ex.Message}"); }
-                    return Result(cmd.SubmitFacts(id, facts.Select(x => x with { Evidence = x.Evidence ?? [] }).ToList()));
-                }
-                case ("concept", "teaching"):
-                {
-                    var id = a.At(0, "concept id");
-                    var summary = a.Text("summary") ?? throw new UsageException("Missing --summary or --summary-file.");
-                    var explanation = a.Text("explanation") ?? throw new UsageException("Missing --explanation or --explanation-file.");
-                    a.EnsureAllUsed();
-                    return Result(cmd.SubmitTeaching(id, summary, explanation));
-                }
-                case ("concept", "request"):
-                {
-                    var id = a.At(0, "concept id");
-                    var kind = a.Req("kind");
-                    var r = kind switch
-                    {
-                        "expand" => cmd.RequestExpansion(id),
-                        "teach" => cmd.RequestTeaching(id, a.Int("fact")),
-                        "ask" => cmd.AskQuestion(id, a.Req("text")),
-                        "recall" => cmd.RequestRecall(id),
-                        _ => throw new UsageException("--kind must be expand, teach, ask or recall."),
-                    };
-                    a.EnsureAllUsed();
-                    return Result(r);
-                }
 
                 // ----- edges -----
-                case ("edge", "add"):
+                case ("edge", "get"):
                 {
-                    var r = cmd.AddEdge(a.At(0, "source id"), a.At(1, "edge type"), a.At(2, "target id"), a.List("evidence"));
+                    var (from, to) = (a.At(0, "source id"), a.At(1, "target id"));
+                    a.EnsureAllUsed();
+                    return q.Relation(from, to) is { } rel ? Emit(rel) : NotFound($"No edge between '{from}' and '{to}'.");
+                }
+                case ("edge", "post"):
+                {
+                    var r = cmd.PostEdge(a.At(0, "source id"), a.At(1, "edge type"), a.At(2, "target id"), a.List("evidence"));
                     a.EnsureAllUsed();
                     return Result(r);
                 }
-                case ("edge", "remove"): { var r = cmd.RemoveEdge(a.At(0, "source id"), a.At(1, "target id")); a.EnsureAllUsed(); return Result(r); }
-                case ("edge", "cite"):
+                case ("edge", "delete"): { var r = cmd.DeleteEdge(a.At(0, "source id"), a.At(1, "target id")); a.EnsureAllUsed(); return Result(r); }
+                case ("edge-evidence", "post"):
                 {
-                    var r = cmd.AttachEdgeEvidence(a.At(0, "source id"), a.At(1, "target id"), a.List("evidence"));
+                    var r = cmd.PostEdgeEvidence(a.At(0, "source id"), a.At(1, "target id"), a.List("evidence"));
                     a.EnsureAllUsed();
                     return Result(r);
                 }
 
                 // ----- evidence -----
-                case ("evidence", "capture"):
+                case ("evidence", "get"):
                 {
                     var id = a.At(0, "evidence id");
-                    var snapshotFile = a.Req("snapshot-file");
-                    var snapshot = snapshotFile == "-" ? Console.In.ReadToEnd() : File.ReadAllText(snapshotFile);
-                    var r = cmd.CaptureEvidence(id, a.Req("source"), a.Req("locator"), a.Req("quote"), snapshot,
-                        a.Opt("media-type") ?? "text/plain", Session(a));
                     a.EnsureAllUsed();
-                    return Result(r);
+                    return q.GetEvidence(id) is { } e ? Emit(e) : NotFound($"Evidence '{id}' does not exist.");
                 }
-                case ("evidence", "fetch"):
+                case ("evidence", "list"): a.EnsureAllUsed(); return Emit(q.ListEvidence());
+                case ("evidence", "post"):
                 {
                     var id = a.At(0, "evidence id");
-                    var (source, url, quote, session) = (a.Req("source"), a.Req("url"), a.Req("quote"), Session(a));
+                    var snapshotFile = a.Opt("snapshot-file");
+                    var input = new EvidenceInput(id, a.Req("source"), a.Req("quote"), Session(a),
+                        Locator: a.Opt("locator"),
+                        SnapshotText: snapshotFile is null ? null : snapshotFile == "-" ? Console.In.ReadToEnd() : File.ReadAllText(snapshotFile),
+                        MediaType: a.Opt("media-type"),
+                        Url: a.Opt("url"));
                     a.EnsureAllUsed();
-                    return Result(await cmd.FetchEvidenceAsync(id, source, url, quote, session));
+                    return Result(await cmd.PostEvidenceAsync(input));
                 }
-                case ("evidence", "reconfirm"):
+                case ("evidence", "delete"): { var r = cmd.DeleteEvidence(a.At(0, "evidence id")); a.EnsureAllUsed(); return Result(r); }
+                case ("snapshot", "get"):
                 {
-                    var id = a.At(0, "evidence id");
-                    var snapshot = File.ReadAllText(a.Req("snapshot-file"));
-                    var r = cmd.ReconfirmEvidence(id, snapshot, a.Opt("media-type") ?? "text/plain", Session(a));
+                    var hash = a.At(0, "snapshot hash");
+                    var textOnly = a.Flag("text");
                     a.EnsureAllUsed();
-                    return Result(r);
+                    if (q.GetSnapshot(hash) is not { } s) return NotFound($"No snapshot '{hash}'.");
+                    if (!textOnly) return Emit(s);
+                    Console.WriteLine(s.Content);
+                    return ExitCodes.Ok;
                 }
-                case ("evidence", "verify"):
+                case ("verification", "post"):
                 {
                     var all = a.Flag("all");
                     var id = a.AtOrNull(0);
@@ -247,86 +311,92 @@ namespace BLearn.Cli
                     var worst = ExitCodes.Ok;
                     foreach (var e in ids)
                     {
-                        var r = await cmd.VerifyEvidenceAsync(e);
+                        var r = await cmd.PostVerificationAsync(e);
                         if (!r.Accepted) worst = ExitCodes.Rejected;
                         results.Add(new { evidence = e, result = Shape(r) });
                     }
                     return Emit(results, worst);
                 }
-                case ("evidence", "get"):
+                case ("confirmation", "post"):
                 {
                     var id = a.At(0, "evidence id");
-                    var withSnapshot = a.Flag("snapshot");
+                    var snapshot = File.ReadAllText(a.Req("snapshot-file"));
+                    var r = cmd.PostConfirmation(id, snapshot, a.Opt("media-type") ?? "text/plain", Session(a));
                     a.EnsureAllUsed();
-                    if (q.GetEvidence(id) is not { } e) return NotFound($"Evidence '{id}' does not exist.");
-                    return Emit(withSnapshot ? new { evidence = e, snapshot = q.GetSnapshot(e.SnapshotHash) } : e);
+                    return Result(r);
                 }
-                case ("evidence", "list"): a.EnsureAllUsed(); return Emit(q.ListEvidence());
 
-                // ----- queue -----
-                case ("queue", "receive"): return await QueueReceive(store, a);
-                case ("queue", "ack"):
+                // ----- leases (the work queue) and messages -----
+                case ("lease", "post"): return await LeasePost(store, a);
+                case ("lease", "delete"):
                 {
                     var receipt = a.At(0, "receipt");
                     a.EnsureAllUsed();
                     return store.Queue.Ack(receipt)
-                        ? Emit(new { acked = receipt })
+                        ? Emit(new { done = receipt })
                         : Emit(new { accepted = false, violation = "lease-lost", message = "Unknown receipt, or the lease expired and the message was redelivered." }, ExitCodes.Rejected);
                 }
-                case ("queue", "nack"):
+                case ("lease", "patch"):
+                case ("lease", "release"):
                 {
                     var receipt = a.At(0, "receipt");
+                    if (verb == "patch" && !a.Flag("release")) throw new UsageException("lease patch changes one thing: pass --release to hand the message back.");
                     var error = a.Opt("error");
                     a.EnsureAllUsed();
                     return store.Queue.Nack(receipt, error)
-                        ? Emit(new { nacked = receipt })
+                        ? Emit(new { released = receipt })
                         : Emit(new { accepted = false, violation = "lease-lost", message = "Unknown receipt, or the lease already expired." }, ExitCodes.Rejected);
                 }
-                case ("queue", "list"): { var done = a.Flag("include-done"); a.EnsureAllUsed(); return Emit(store.Queue.List(done).Select(MessageView)); }
-                case ("queue", "dead-letters"): a.EnsureAllUsed(); return Emit(store.Queue.DeadLetters().Select(MessageView));
+                case ("message", "list"):
+                {
+                    var state = a.Opt("state");
+                    a.EnsureAllUsed();
+                    var messages = state switch
+                    {
+                        null => store.Queue.List(),
+                        "dead" => store.Queue.DeadLetters(),
+                        "ready" or "leased" or "done" => store.Queue.List(includeDone: true).Where(m => m.State == state).ToList(),
+                        _ => throw new UsageException("--state must be ready, leased, done or dead."),
+                    };
+                    return Emit(messages.Select(MessageView));
+                }
 
                 // ----- events -----
-                case ("events", "list"):
-                {
-                    var after = (long)(a.Int("after") ?? 0);
-                    var types = a.List("type");
-                    var limit = a.Int("limit") ?? 100;
-                    a.EnsureAllUsed();
-                    return Emit(store.Events.Read(after, types, limit).Select(EventView));
-                }
-                case ("events", "wait"): return await EventsWait(store, a);
+                case ("event", "list"): return await EventList(store, a);
 
                 // ----- learner -----
-                case ("learner", "visit"):
+                case ("visit", "post"):
                 {
-                    var r = cmd.RecordVisit(a.At(0, "concept id"), a.Opt("from"), a.Opt("direction"));
+                    var r = cmd.PostVisit(a.At(0, "concept id"), a.Opt("from"), a.Opt("direction"));
                     a.EnsureAllUsed();
                     return Result(r);
                 }
-                case ("learner", "known"): { var r = cmd.MarkKnown(a.At(0, "concept id")); a.EnsureAllUsed(); return Result(r); }
-                case ("learner", "unknown"): { var r = cmd.UnmarkKnown(a.At(0, "concept id")); a.EnsureAllUsed(); return Result(r); }
-                case ("learner", "journey"): { var l = a.Int("limit") ?? 100; a.EnsureAllUsed(); return Emit(new { visits = q.Journey(l), known = q.Known() }); }
-                case ("learner", "recall-answer"):
+                case ("visit", "list"): { var l = a.Int("limit") ?? 100; a.EnsureAllUsed(); return Emit(q.Journey(l)); }
+                case ("known", "put"): { var r = cmd.PutKnown(a.At(0, "concept id")); a.EnsureAllUsed(); return Result(r); }
+                case ("known", "delete"): { var r = cmd.DeleteKnown(a.At(0, "concept id")); a.EnsureAllUsed(); return Result(r); }
+                case ("known", "list"): a.EnsureAllUsed(); return Emit(q.Known());
+                case ("recall-answer", "post"):
                 {
-                    var r = cmd.AnswerRecall(a.At(0, "concept id"), a.Req("answer"), a.Opt("feedback"));
+                    var correct = a.Opt("correct") is { } ok ? bool.TryParse(ok, out var b2) ? b2 : throw new UsageException("--correct must be true or false.") : (bool?)null;
+                    var r = cmd.PostRecallAnswer(a.At(0, "concept id"), a.Req("answer"), a.Opt("feedback"), a.Int("question"), correct);
                     a.EnsureAllUsed();
                     return Result(r);
                 }
 
-                // ----- agent -----
-                case ("agent", "brief"):
+                // ----- agent brief -----
+                case ("brief", "get"):
                     a.EnsureAllUsed();
                     Console.WriteLine(AgentBrief.Render(q.GetInfo(), ExeName()));
                     return ExitCodes.Ok;
 
                 default:
-                    throw new UsageException($"Unknown command '{resource} {action}'.");
+                    throw new UsageException($"Unknown command '{resource} {verb}'.");
             }
         }
 
         // ---------- store ----------
 
-        private static int StoreCreate(CliArgs a)
+        private static int StorePost(CliArgs a)
         {
             var path = a.At(0, "store file path");
             var name = a.Req("name");
@@ -338,7 +408,7 @@ namespace BLearn.Cli
             if (!path.EndsWith(".blearn", StringComparison.OrdinalIgnoreCase)) path += ".blearn";
             using var store = Provider.Create(path);
             var r = new BLearnCommands(store, Clock, new SourceFetcher(SourceFetcher.CreateClient()))
-                .InitializeStore(name, rootTitle, rootGloss, isPrivate, rootId);
+                .PostStore(name, rootTitle, rootGloss, isPrivate, rootId);
             if (!r.Accepted)
             {
                 store.Dispose();
@@ -348,6 +418,32 @@ namespace BLearn.Cli
             }
             RecentStores.Touch(store.Path, name);
             return Emit(new { accepted = true, store = store.Path, events = r.Events.Select(EventView) });
+        }
+
+/// <summary>Prints the text blearn would store as a snapshot for a URL or file, so quotes can be copied from it exactly.</summary>
+        private static async Task<int> PageGet(CliArgs a)
+        {
+            var url = a.Opt("url") ?? a.AtOrNull(0) ?? throw new UsageException("Missing --url.");
+            a.EnsureAllUsed();
+            try
+            {
+                var page = await new SourceFetcher(SourceFetcher.CreateClient()).FetchAsync(url);
+                Console.WriteLine(page.Content);
+                return ExitCodes.Ok;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UriFormatException or ArgumentException or TaskCanceledException)
+            {
+                return Emit(new { accepted = false, violation = "fetch-failed", message = $"Could not fetch '{url}': {ex.Message}" }, ExitCodes.Rejected);
+            }
+        }
+
+        /// <summary>Reads a JSON body from --file (or "-" for stdin) or --json.</summary>
+        private static T? ReadJson<T>(CliArgs a, string what)
+        {
+            var json = a.Opt("json") ?? (a.Opt("file") is { } f ? (f == "-" ? Console.In.ReadToEnd() : File.ReadAllText(f)) : null)
+                ?? throw new UsageException($"Provide the {what} with --file <path> or --json '<json>'.");
+            try { return JsonSerializer.Deserialize<T>(json, Json.Options); }
+            catch (JsonException ex) { throw new UsageException($"The {what} JSON is invalid: {ex.Message}"); }
         }
 
         private static IStore OpenStore(CliArgs a)
@@ -365,9 +461,10 @@ namespace BLearn.Cli
 
         private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 
-        private static async Task<int> QueueReceive(IStore store, CliArgs a)
+        /// <summary>Claims one message: <c>lease post [queue...] [--wait] [--timeout SEC]</c>.</summary>
+        private static async Task<int> LeasePost(IStore store, CliArgs a)
         {
-            var queues = a.List("queue");
+            var queues = a.Positional.Concat(a.List("queue")).ToList();
             var wait = a.Flag("wait");
             var timeout = a.Int("timeout");
             var lease = TimeSpan.FromSeconds(a.Int("lease") ?? 1800);
@@ -387,16 +484,26 @@ namespace BLearn.Cli
             }
         }
 
-        private static async Task<int> EventsWait(IStore store, CliArgs a)
+        /// <summary><c>event list [--after N] [--type T,...] [--limit N]</c>; with <c>--wait</c>, blocks until there is at least one.</summary>
+        private static async Task<int> EventList(IStore store, CliArgs a)
         {
             var types = a.List("type");
-            var after = (long?)a.Int("after") ?? store.Events.LatestSeq();
+            var wait = a.Flag("wait");
+            var afterOpt = (long?)a.Int("after");
+            var limit = a.Int("limit") ?? 100;
             var timeout = a.Int("timeout");
             a.EnsureAllUsed();
+            if (!wait)
+            {
+                if (timeout is not null) throw new UsageException("--timeout only applies with --wait.");
+                return Emit(store.Events.Read(afterOpt ?? 0, types, limit).Select(EventView));
+            }
+
+            var after = afterOpt ?? store.Events.LatestSeq();
             var deadline = timeout is { } t ? DateTimeOffset.Now.AddSeconds(t) : (DateTimeOffset?)null;
             while (true)
             {
-                var events = store.Events.Read(after, types);
+                var events = store.Events.Read(after, types, limit);
                 if (events.Count > 0) return Emit(new { events = events.Select(EventView), next = events[^1].Seq });
                 if (deadline is { } d && DateTimeOffset.Now >= d) return Emit(new { timeout = true, next = after }, ExitCodes.Timeout);
                 await Task.Delay(PollInterval);
@@ -417,7 +524,8 @@ namespace BLearn.Cli
 
         // ---------- output ----------
 
-        private static string ExeName() => Environment.GetEnvironmentVariable("BLEARN_EXE") ?? "blearn";
+        private static string ExeName() => Environment.GetEnvironmentVariable("BLEARN_EXE")
+            ?? (Environment.ProcessPath is { } p && Path.GetFileNameWithoutExtension(p).Equals("blearn", StringComparison.OrdinalIgnoreCase) ? p.Replace('\\', '/') : "blearn");
 
         private static object EventView(StoredEvent e) =>
             new { e.Seq, e.Type, e.Stream, e.At, payload = JsonNode.Parse(e.PayloadJson) };
@@ -439,38 +547,83 @@ namespace BLearn.Cli
             return code;
         }
 
+        /// <summary>Prints the lines for one resource, or everything when it is unknown.</summary>
+        private static int Help(string resource)
+        {
+            var lines = HelpText.Split('\n');
+            var start = Array.FindIndex(lines, l => l.TrimEnd().StartsWith("  " + resource + " ") || l.Trim() == resource);
+            if (start < 0) { Console.Error.WriteLine($"No help for '{resource}'."); return Help(); }
+            Console.WriteLine(lines[start].TrimEnd());
+            for (var i = start + 1; i < lines.Length && lines[i].StartsWith("                 "); i++) Console.WriteLine(lines[i].TrimEnd());
+            Console.WriteLine("\nOutput is JSON. Exit codes: 0 ok, 1 rejected by a rule, 2 usage, 3 wait timed out, 4 not found. Global: --store <file.blearn> (or BLEARN_STORE).");
+            return ExitCodes.Ok;
+        }
+
         private static int Help()
         {
-            Console.WriteLine("""
+            Console.WriteLine(HelpText);
+            return ExitCodes.Ok;
+        }
+
+        private const string HelpText = """
                 blearn: build and explore evidence-backed concept graphs.
 
                   blearn                                  open the web UI (store picker)
                   blearn serve [--store F] [--port N] [--no-open]
 
-                Every other command takes --store <file.blearn> (or BLEARN_STORE) and prints JSON.
-                Exit codes: 0 ok, 1 rejected by a rule, 2 usage, 3 wait timed out, 4 not found.
+                Commands are 'blearn <resource> <verb>' with the verbs get, list, post, put, patch, delete.
+                Every command except 'store post' and 'store list' takes --store <file.blearn> (or BLEARN_STORE).
+                Output is JSON. Exit codes: 0 ok, 1 rejected by a rule, 2 usage, 3 wait timed out, 4 not found.
 
-                  store    create <file> --name N --root-title T --root-gloss G [--root-id I] [--private]
-                           info | recent | export <folder> | import-markdown <folder> | set-private true|false
-                  source   register <name> --system S --scope "..." [--min-trust captured|reconfirmed|fetched] | list
-                  concept  get <id> | list [--status S] | search <text> | neighbors <id> | graph <id> [--hops N]
-                           stub --title T --gloss G [--id I] [--alias A]... [--from P --type E --evidence ev,...]
-                           rename <id> --title T | alias <id> <alias> | gloss <id> --gloss G
-                           facts <id> --file F | --json '[{"text": "...", "evidence": ["ev"]}]'
-                           teaching <id> --summary[-file] ... --explanation[-file] ...
-                           request <id> --kind expand|teach|ask|recall [--fact N] [--text Q]
-                  edge     add <from> <type> <to> --evidence ev,... | remove <from> <to> | cite <from> <to> --evidence ev | types
-                  evidence capture <id> --source S --locator L --quote Q --snapshot-file F [--media-type M] --session X
-                           fetch <id> --source S --url U --quote Q --session X
-                           reconfirm <id> --snapshot-file F --session X | verify <id>|--all | get <id> [--snapshot] | list
-                  queue    receive [--queue expand,teach,ask,recall] [--wait] [--timeout SEC] [--lease SEC] [--session X]
-                           ack <receipt> | nack <receipt> [--error E] | list [--include-done] | dead-letters
-                  events   list [--after N] [--type T,...] [--limit N] | wait [--after N] [--type T,...] [--timeout SEC]
-                  learner  visit <id> [--from P] [--direction down|up|lateral] | known <id> | unknown <id> | journey
-                           recall-answer <id> --answer A [--feedback F]
-                  agent    brief
-                """);
-            return ExitCodes.Ok;
-        }
+                Store
+                  store          post <file> --name N --root-title T --root-gloss G [--root-id I] [--private]
+                                 get | list (recent stores) | patch --private true|false
+                  source         post <name> --system S --scope "..." [--min-trust captured|reconfirmed|fetched] | list
+                  import         post <markdown-folder>
+                  export         post <folder>
+
+                Concepts and edges
+                  concept        get <id> | list [--status S] [--search TEXT] [--limit N]
+                                 post --title T --gloss G [--id I] [--alias A]... [--from P --type E --evidence ev,...]
+                                 patch <id> [--title T] [--gloss G] [--add-alias A]...
+                  facts          put <concept> --file F | --json '[{"text": "...", "evidence": ["ev"]}]'   (replaces all facts)
+                  teaching       put <concept> --summary[-file] ... --explanation[-file] ...
+                  request        post <concept> --kind expand|teach|recall
+                  recall-question put <concept> --file F   ([{"prompt": "...", "answer": "...", "facts": [0, 2]}]; replaces the quiz)
+                  check          put <concept> --file F --session X
+                                 ({"facts": [{"index": 0, "verdict": "supports|partial|unsupported", "note": "..."}],
+                                  "teaching": [{"excerpt": "verbatim text from gloss or teaching", "note": "..."}]})
+                  neighbor       list <concept>
+                  graph          get <concept> [--hops N]
+                  edge           get <from> <to> | post <from> <type> <to> --evidence ev,... | delete <from> <to>
+                  edge-evidence  post <from> <to> --evidence ev,...
+                  edge-type      list
+
+                Evidence
+                  evidence       get <id> | list | delete <id> (only when nothing cites it)
+                                 post <id> --source S --quote Q --session X (--url U | --snapshot-file F --locator L [--media-type M])
+                  snapshot       get <hash> [--text]   (--text prints only the stored page text)
+                  page           get --url U   (prints the text blearn would store for U; nothing is saved)
+                  verification   post <evidence-id> | --all
+                  confirmation   post <evidence-id> --snapshot-file F --session X [--media-type M]
+
+                Conversations
+                  question       post <concept> --text Q [--quote "highlighted text"] [--fact N] [--conversation C]
+                  reply          post <conversation> --text[-file] ... --session X   (answers the latest question)
+                  conversation   get <id> | list [--concept C] [--waiting] [--limit N]
+
+                Work and events
+                  lease          post [queue...] [--wait] [--timeout SEC] [--lease SEC] [--session X]   (alias: queue receive)
+                                 delete <receipt> (done; alias: queue ack) | patch <receipt> --release [--error E] (alias: queue nack)
+                  message        list [--state ready|leased|done|dead]
+                  event          list [--after N] [--type T,...] [--limit N] [--wait [--timeout SEC]]
+
+                Learner
+                  visit          post <concept> [--from P] [--direction down|up|lateral] | list [--limit N]
+                  known          put <concept> | delete <concept> | list
+                  recall-answer  post <concept> --answer A [--feedback F] [--question N] [--correct true|false]
+
+                  brief          get    (the agent brief)
+                """;
     }
 }
