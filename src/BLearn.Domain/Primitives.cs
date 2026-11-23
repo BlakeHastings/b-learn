@@ -66,5 +66,10 @@ public abstract class AggregateRoot
 
     protected void Raise(DomainEvent e) => _pending.Add(e);
 
-    public void ClearPendingEvents() => _pending.Clear();
+    /// <summary>Called by a repository after it stored the pending events: records the new version and clears them.</summary>
+    public void MarkPersisted(long newVersion)
+    {
+        Version = newVersion;
+        _pending.Clear();
+    }
 }
