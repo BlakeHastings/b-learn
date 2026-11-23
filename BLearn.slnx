@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BLearn.Cli/BLearn.Cli.csproj" />
+    <Project Path="src/BLearn.Core/BLearn.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BLearn.Core.Tests/BLearn.Core.Tests.csproj" />
+  </Folder>
+</Solution>
