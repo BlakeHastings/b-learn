@@ -36,7 +36,9 @@ public static class AgentBrief
         sb.AppendLine("4. Go back to step 1. Exit code 3 means the wait timed out: just wait again.");
         sb.AppendLine();
         sb.AppendLine("## Kinds");
-        sb.AppendLine("- expand: research a stub. Capture evidence, submit facts, add sourced edges to new or existing concepts, then write teaching.");
+        sb.AppendLine("- expand: research a stub or unverified concept. Capture evidence, submit facts, add sourced edges to new or existing concepts, then write teaching.");
+        sb.AppendLine("  Unverified concepts carry imported teaching: treat it as a lead to check, and replace it with teaching built from your facts.");
+        sb.AppendLine("  Their edges are unverified too: cite evidence for each one you can support, remove ones the sources contradict.");
         sb.AppendLine("- teach: write or improve teaching for a concept (or one fact) using only its facts.");
         sb.AppendLine("- ask: answer the learner's question from the graph's facts; research more if needed.");
         sb.AppendLine("- recall: prepare questions that test the concept's facts.");
@@ -47,7 +49,7 @@ public static class AgentBrief
         sb.AppendLine($"- Evidence blearn can fetch (web, file): {s} evidence fetch <id> --source <name> --url <url> --quote \"<verbatim>\" --session <id>");
         sb.AppendLine($"- Facts: {s} concept facts <id> --file facts.json   (JSON: [{{\"text\": \"...\", \"evidence\": [\"ev-id\"]}}])");
         sb.AppendLine($"- New concept: {s} concept stub --id <id> --title \"...\" --gloss \"...\" [--from <parent> --type <edge-type> --evidence <ev-id>]");
-        sb.AppendLine($"- Edge: {s} edge add <from> <type> <to> --evidence <ev-id>");
+        sb.AppendLine($"- Edge: {s} edge add <from> <type> <to> --evidence <ev-id>   |   verify an unverified edge: {s} edge cite <from> <to> --evidence <ev-id>   |   {s} edge remove <from> <to>");
         sb.AppendLine($"- Teaching: {s} concept teaching <id> --summary-file s.md --explanation-file e.md");
         sb.AppendLine();
         sb.AppendLine("## Rules");

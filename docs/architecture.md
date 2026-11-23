@@ -1,6 +1,6 @@
 # Architecture
 
-Status: draft for review. The current prototype (markdown store, `validate`, `serve`) is described in [design.md](design.md); this document is the target design that replaces it.
+Status: implemented, except where noted under "Not built yet" at the end.
 
 ## Principles
 
@@ -185,7 +185,11 @@ A write is rejected if the aggregate changed since it was read (each aggregate h
 - `dnx blearn` for users with the .NET 10 SDK.
 - Release automation follows the stable and edge channel pipeline (MinVer and release-please).
 
-## Migration from the prototype
+## Not built yet
 
-- Split `BLearn.Core` into Domain, Application and Infrastructure. The current validator rules become aggregate invariants.
-- The markdown parser becomes an importer, so the hand-written C# store loads into a `.blearn` file. Its notes have no evidence yet, so they import as unverified and become the first test of the research workflow.
+- **Distribution.** Self-contained binaries, install scripts, the npm wrapper and release automation. Today it runs with the .NET SDK.
+- **Checker verdicts.** The checker role is defined, but there is no command yet to record its per-citation verdict (supports / partial / does not support) or its flags on teaching text.
+- **Minimum trust as a gate.** A source's minimum trust level marks facts as not verified in views; it does not block submission.
+- **PDF and other binary sources.** `evidence fetch` handles web pages and text files; other formats must be captured as text through the harness.
+- **Recall flow.** `recall` requests queue work and answers can be recorded, but there is no quiz UI yet.
+- **Store-level policy for private stores** beyond the flag and the brief (for example, restricting which source systems may be registered).

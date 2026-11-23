@@ -31,6 +31,7 @@ namespace BLearn.Cli
         {
             try
             {
+                argv = HoistGlobalOptions(argv);
                 if (argv.Length == 0) return await Serve(new CliArgs([]));
                 var a = new CliArgs(argv.Skip(2).ToArray());
                 var (resource, action) = (argv[0], argv.Length > 1 ? argv[1] : "");
@@ -48,6 +49,34 @@ namespace BLearn.Cli
             {
                 return Emit(new { error = ex.Message }, ExitCodes.NotFound);
             }
+        }
+
+        /// <summary>
+        /// Moves global options (--store, --session) that appear before the command to the end, so
+        /// "blearn --store F queue receive" and "blearn queue receive --store F" mean the same thing.
+        /// </summary>
+        private static string[] HoistGlobalOptions(string[] argv)
+        {
+            var rest = new List<string>();
+            var globals = new List<string>();
+            var i = 0;
+            while (i < argv.Length && argv[i].StartsWith("--"))
+            {
+                var name = argv[i];
+                var bare = name.Split('=')[0];
+                if (bare is not ("--store" or "--session" or "--port" or "--no-open")) break;
+                globals.Add(name);
+                if (!name.Contains('=') && bare != "--no-open")
+                {
+                    if (i + 1 >= argv.Length) throw new UsageException($"{bare} needs a value.");
+                    globals.Add(argv[++i]);
+                }
+                i++;
+            }
+            rest.AddRange(argv.Skip(i));
+            if (rest.Count == 0 && globals.Count > 0) rest.Add("serve");
+            rest.AddRange(globals);
+            return rest.ToArray();
         }
 
         private static async Task<int> Dispatch(string resource, string action, CliArgs a)
