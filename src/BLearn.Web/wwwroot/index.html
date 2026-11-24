@@ -202,6 +202,7 @@
   .connect { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0; font-size: 14px; }
   .connect.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--ink); }
   .connect .row { margin-top: 8px; }
+  pre.attach { white-space: pre-wrap; word-break: break-all; margin: 8px 0 6px; }
   .agent-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
   .agent-row:first-child { border-top: 0; }
   .agent-row small { color: var(--muted); display: block; }
@@ -786,29 +787,21 @@ async function toggleAgents() {
 }
 
 async function renderAgents() {
-  const s = state.store, exe = state.exe;
+  const s = state.store;
   const q = { open: await api("/api/messages"), dead: await api("/api/messages?state=dead") };
-  const instruction = `Run \`${exe} --store "${s.path}" brief get\` and follow it. Process b-learn work for this store until I tell you to stop.`;
   const row = m => { const p = JSON.parse(m.payloadJson); return `<tr><td>${esc(m.queue)}</td><td>${esc(p.conceptId || "")}${p.text ? `: ${esc(p.text)}` : ""}</td>
     <td>${m.state === "leased" ? `claimed by ${esc(m.receivedBy)}` : m.state}</td><td>${m.attempts}</td></tr>`; };
   const live = (agents.agents || []).filter(a => a.state !== "offline");
-  const available = (agents.harnesses || []).filter(h => h.available);
-  const m = agents.managed;
   const agentRow = a => `<div class="agent-row"><span class="agent-pill ${a.state === "working" ? "working" : "ready"}"><i></i></span>
-      <div style="flex:1"><b>${esc(harnessName(a.harness) || a.session)}</b> ${a.managed ? "(started by b-learn)" : "(connected from your harness)"}
-      <small>${a.state === "working" ? `Working on ${esc(a.work.queue)}${a.work.conceptId ? ` for ${esc(a.work.conceptId)}` : ""}: ${esc(a.activity || "")}` : "Waiting for work"}</small></div></div>`;
+      <div style="flex:1"><b>${esc(a.session)}</b>
+      <small>${a.state === "working" ? `Working on ${esc(a.work.queue)}${a.work.conceptId ? ` for ${esc(a.work.conceptId)}` : ""}${a.activity ? `: ${esc(a.activity)}` : ""}` : "Waiting for work"}</small></div></div>`;
   $("agents").innerHTML = `<div class="row" style="justify-content:space-between"><h2>Agents</h2><button class="btn" onclick="document.getElementById('agents').classList.add('hidden')">Close</button></div>
     <h3>Connection</h3>
     ${live.length ? live.map(agentRow).join("") : `<div class="connect warn"><b>No agent is connected.</b> Research, questions and quizzes wait until one is.</div>`}
-    ${m ? `<div class="row" style="margin-top:8px"><button class="btn" id="disconnectBtn">Disconnect ${esc(harnessName(m.harness))}</button>
-        <span style="color:var(--muted);font-size:13px">Connects automatically whenever you open a store.</span></div>`
-      : available.length ? `<div class="connect"><b>Connect with one click.</b> b-learn starts your agent for each request, using your own sign-in.
-          It may only run blearn commands, read web pages and write notes in its own work folder.
-          <div class="row">${available.map(h => `<button class="btn primary" data-connect="${esc(h.id)}">Connect ${esc(h.name)}</button>`).join("")}</div></div>` : ""}
-    <h3>Use any other agent</h3>
-    <p style="color:var(--muted);font-size:14px">Paste this into any agent that can run shell commands (Codex, Cursor, Gemini CLI and others). It reads the brief, then waits for work from this page, and shows up above when it is connected.</p>
-    <pre id="instr">${esc(instruction)}</pre><button class="btn" id="copyInstr">Copy</button>`
-    + `
+    <h3>Attach your agent</h3>
+    <p style="color:var(--muted);font-size:14px">Paste this into the agent you already use (Claude Code, Codex, Cursor, Gemini CLI, or any agent that can run shell commands).
+      It works with your own setup, coordinates subagents to do several things at once, and shows up above as soon as it is listening.</p>
+    ${attachBox()}
     <h3>Waiting and in progress (${q.open.length})</h3>
     ${q.open.length ? `<table><tr><th>Kind</th><th>Concept</th><th>State</th><th>Tries</th></tr>${q.open.map(row).join("")}</table>` : `<p style="color:var(--muted);font-size:14px">Nothing queued. Requests you make on concept pages appear here.</p>`}
     ${q.dead.length ? `<h3>Failed (${q.dead.length})</h3><table><tr><th>Kind</th><th>Concept</th><th>Error</th><th>Tries</th></tr>${q.dead.map(m => { const p = JSON.parse(m.payloadJson); return `<tr><td>${esc(m.queue)}</td><td>${esc(p.conceptId || "")}</td><td>${esc(m.lastError || "")}</td><td>${m.attempts}</td></tr>`; }).join("")}</table>` : ""}
@@ -821,8 +814,6 @@ async function renderAgents() {
         <input id="srcScope" placeholder="What it is authoritative about" style="flex:1"><button class="btn" id="srcAdd">Add</button></div>
       <span class="error" id="srcErr"></span>
     </div>`;
-  if ($("disconnectBtn")) $("disconnectBtn").onclick = async () => applyAgents(await api("/api/agents/disconnect", { method: "POST" }));
-  $("copyInstr").onclick = () => navigator.clipboard.writeText(instruction).then(() => toast("Copied"), () => toast("Select the text and copy it"));
   $("srcAdd").onclick = async () => {
     $("srcErr").textContent = "";
     try {
@@ -833,9 +824,18 @@ async function renderAgents() {
   };
 }
 
-// ---------- agent connection ----------
-let agents = { connected: false, agents: [], harnesses: [], managed: null };
+// ---------- agent connection: agents attach themselves; the UI shows who is listening ----------
+let agents = { connected: false, agents: [] };
 let agentsLoaded = false;
+
+/** The line to paste into the learner's own agent. brief get finds the store open in this app. */
+function attachLine() {
+  return `Run \`${state.exe} brief get\` and follow it: orchestrate b-learn work for the store I have open, until I tell you to stop.`;
+}
+
+function attachBox() {
+  return `<pre class="attach">${esc(attachLine())}</pre><button class="btn primary" data-copy-attach>Copy</button>`;
+}
 
 async function loadAgents() {
   try { applyAgents(await api("/api/agents")); } catch {}
@@ -846,14 +846,13 @@ function applyAgents(next) {
   const before = agents;
   agents = next;
   if (agentsLoaded) {
-    const name = a => harnessName(a?.harness) || "Your agent";
-    if (!before.connected && next.connected) toast(`${name(next.agents[0])} connected.`);
-    else if (before.connected && !next.connected) toast("Your agent disconnected. Requests will wait until one connects.");
+    if (!before.connected && next.connected) toast("Your agent is connected.");
+    else if (before.connected && !next.connected) toast("Your agent disconnected. Requests will wait until one is attached.");
     for (const a of next.agents || []) {
       const was = (before.agents || []).find(b => b.session === a.session);
-      if (a.work && a.work.messageId !== was?.work?.messageId) {
-        const what = { expand: "researching", ask: "answering your question", teach: "writing teaching", recall: "writing quiz questions", check: "checking" }[a.work.queue] || "working";
-        if (a.work.queue !== "check") toast(`${name(a)} is ${what}${a.work.conceptId ? ` (${a.work.conceptId})` : ""}.`);
+      if (a.work && a.work.messageId !== was?.work?.messageId && a.work.queue !== "check") {
+        const what = { expand: "researching", ask: "answering your question", teach: "writing teaching", recall: "writing quiz questions" }[a.work.queue] || "working";
+        toast(`Your agent is ${what}${a.work.conceptId ? ` (${a.work.conceptId})` : ""}.`);
       }
     }
   }
@@ -864,36 +863,30 @@ function applyAgents(next) {
   if (!$("agents").classList.contains("hidden")) renderAgents();
 }
 
-function harnessName(id) { return (agents.harnesses || []).find(h => h.id === id)?.name || (id ? id : null); }
-function busyAgent() { return (agents.agents || []).find(a => a.state === "working"); }
+function busyAgents() { return (agents.agents || []).filter(a => a.state === "working"); }
 
 function renderAgentPill() {
-  const pill = $("agentPill"), busy = busyAgent();
-  const ready = (agents.agents || []).find(a => a.state !== "offline");
-  pill.className = `agent-pill ${busy ? "working" : ready ? "ready" : "none"}`;
-  const who = a => harnessName(a.harness) || "Agent";
-  pill.querySelector("span").textContent = busy ? `${who(busy)}: ${busy.activity || "working"}`
-    : ready ? `${who(ready)} ready` : "No agent connected";
-  pill.title = busy ? "An agent is working. Click for details." : ready ? "An agent is connected and waiting for work." : "Click to connect an agent.";
+  const pill = $("agentPill"), busy = busyAgents();
+  pill.className = `agent-pill ${busy.length ? "working" : agents.connected ? "ready" : "none"}`;
+  pill.querySelector("span").textContent = busy.length > 1 ? `Agent working on ${busy.length} things`
+    : busy.length ? `Agent: ${busy[0].activity || { expand: "researching", ask: "answering", teach: "teaching", recall: "writing a quiz", check: "checking" }[busy[0].work.queue] || "working"}`
+    : agents.connected ? "Agent connected" : "No agent connected";
+  pill.title = busy.length ? "Your agent is working. Click for details." : agents.connected ? "Your agent is listening for work." : "Click to attach your agent.";
 }
 
-/** A one-line prompt to connect, used wherever the learner is waiting on an agent. */
+/** Shown wherever the learner would wait on nobody: what to paste to attach an agent. */
 function connectPrompt(context) {
   if (agents.connected) return "";
-  const h = (agents.harnesses || []).find(x => x.available);
   return `<div class="connect warn"><b>No agent is connected</b>, so ${context} will wait until one is.
-    <div class="row">${h ? `<button class="btn primary" data-connect="${esc(h.id)}">Connect ${esc(h.name)}</button>` : ""}
-    <button class="btn" data-open-agents>${h ? "Other agents" : "Connect an agent"}</button></div></div>`;
-}
-
-async function connectAgent(harness) {
-  try { applyAgents(await api("/api/agents/connect", { method: "POST", body: { harness, autoConnect: true } })); }
-  catch (e) { toast(e.data?.error || e.data?.message || e.message); }
+    Paste this into your agent (Claude Code, Codex, Cursor...):${attachBox()}</div>`;
 }
 
 document.addEventListener("click", e => {
-  const c = e.target.closest?.("[data-connect]");
-  if (c) { e.preventDefault(); connectAgent(c.dataset.connect); return; }
+  if (e.target.closest?.("[data-copy-attach]")) {
+    e.preventDefault();
+    navigator.clipboard.writeText(attachLine()).then(() => toast("Copied. Paste it into your agent."), () => toast("Select the text and copy it."));
+    return;
+  }
   if (e.target.closest?.("[data-open-agents]")) { e.preventDefault(); $("agents").classList.contains("hidden") && toggleAgents(); }
 });
 $("agentPill").onclick = () => toggleAgents();
@@ -933,7 +926,7 @@ function renderChat() {
     const answering = (agents.agents || []).find(a => a.work?.queue === "ask" && c.messages.length && a.state === "working");
     body.innerHTML = anchor + c.messages.map(m => `<div class="msg ${m.role}">${m.html}</div>`).join("")
       + (c.awaitingReply ? (agents.connected
-          ? `<div class="waiting"><span class="spinner"></span>${answering ? `${esc(harnessName(answering.harness) || "Your agent")} is answering: ${esc(answering.activity || "thinking")}` : "Waiting for your agent to pick this up."}</div>`
+          ? `<div class="waiting"><span class="spinner"></span>${answering ? `Your agent is answering${answering.activity ? `: ${esc(answering.activity)}` : ""}` : "Waiting for your agent to pick this up."}</div>`
           : connectPrompt("this question")) : "");
     body.scrollTop = body.scrollHeight;
   } else {

@@ -103,8 +103,11 @@ public interface IWorkQueue
     /// </summary>
     QueueMessage? TryReceive(IReadOnlyCollection<string> queues, TimeSpan lease, string receiver);
 
-    /// <summary>Marks a leased message done. False when the receipt is unknown or the lease was lost.</summary>
-    bool Ack(string receipt);
+    /// <summary>Marks a leased message done, optionally with a note (why it finished without a result). False when the receipt is unknown or the lease was lost.</summary>
+    bool Ack(string receipt, string? note = null);
+
+    /// <summary>The message holding this receipt, or null.</summary>
+    QueueMessage? Find(string receipt);
 
     /// <summary>Returns a leased message to the queue, or dead-letters it after too many attempts.</summary>
     bool Nack(string receipt, string? error);

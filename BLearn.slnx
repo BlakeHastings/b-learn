@@ -3,7 +3,6 @@
     <Project Path="src/BLearn.Application/BLearn.Application.csproj" />
     <Project Path="src/BLearn.Cli/BLearn.Cli.csproj" />
     <Project Path="src/BLearn.Domain/BLearn.Domain.csproj" />
-    <Project Path="src/BLearn.Infrastructure.Agents/BLearn.Infrastructure.Agents.csproj" />
     <Project Path="src/BLearn.Infrastructure.Fetching/BLearn.Infrastructure.Fetching.csproj" />
     <Project Path="src/BLearn.Infrastructure.Markdown/BLearn.Infrastructure.Markdown.csproj" />
     <Project Path="src/BLearn.Infrastructure.Sqlite/BLearn.Infrastructure.Sqlite.csproj" />

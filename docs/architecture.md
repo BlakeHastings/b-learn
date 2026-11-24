@@ -143,16 +143,11 @@ A released message waits a minute per attempt before redelivery, so the agent th
 
 **Presence.** An agent counts as connected while it waits for work (`lease post`, which polls several times a second) or holds a lease and has been active in the last 15 minutes. Finishing or releasing work and any command run with a session id also count as signs of life. Presence lives in an `agents` table, not the event log: it is operational state, not domain history. The UI receives it over the same server-sent event stream whenever it changes, shows it as a status pill, and prompts the learner to connect wherever they would otherwise wait on nobody.
 
-**One-click connection.** For harnesses b-learn knows how to start (Claude Code today), "Connect" starts an `AgentRunner` in the server. It claims one message at a time and runs the harness headless on it with a fresh context:
+**Attaching.** The learner attaches the agent they already use, with their own configuration, by pasting one line from the UI: run `blearn brief get` and follow it. Without --store, CLI commands use the store open in the running UI, so the line is the same for every store. b-learn never starts or restricts the agent itself.
 
-- Permissions are an allowlist that never prompts: `blearn` commands, web reading, and files in a per-store work folder. `blearn` is put on the agent's PATH and the store and session are in its environment, so the natural command is exactly the allowed one.
-- Progress is parsed from the harness's streamed output into plain activity ("Reading learn.microsoft.com", "Writing facts") shown in the UI.
-- The runner does not trust the agent's own success report: before marking work done it checks that the outcome is in the store (a reply posted, the concept researched, quiz questions or a check saved), and hands the work back with the reason otherwise.
-- It reports in every 30 seconds while working; work held by a started agent that has been silent for 2 minutes is redelivered without waiting for its lease.
-- Transcripts of the last 50 tasks are kept under `%LOCALAPPDATA%\b-learn\agent-work\<store>\logs`.
-- The choice is remembered (`%APPDATA%\b-learn\settings.json`), so the agent reconnects whenever a store opens.
+**Orchestration.** The brief tells the attached agent to coordinate rather than do everything itself: claim up to four messages, give each to a subagent with its own session id, keep the receipts, start questions first, and give a check only to a subagent that did not research that concept. Separate sessions also keep the checker rule meaningful.
 
-Any other agent connects by pasting the instruction from the Agents panel; it shows as connected the same way.
+**Outcome check.** `lease delete` is refused until the work's result is in the store (the question has a reply, the concept is researched, the quiz or check is saved). An agent that honestly has nothing to produce, for example no source in scope, finishes with `--without-outcome "why"`, and the reason is recorded on the message.
 
 ## CLI and HTTP API
 
@@ -234,5 +229,5 @@ A write is rejected if the aggregate changed since it was read (each aggregate h
 - **Distribution.** Self-contained binaries, install scripts, the npm wrapper and release automation. Today it runs with the .NET SDK.
 - **Minimum trust as a gate.** A source's minimum trust level marks facts as not verified in views; it does not block submission.
 - **PDF and other binary sources.** `evidence fetch` handles web pages and text files; other formats must be captured as text through the harness.
-- **Streaming chat and more one-click harnesses.** Questions reach agents through the work queue (answers arrive in seconds when an agent is connected, but not word by word), and only Claude Code can be started with one click. The recommended next step is the Agent Client Protocol (ACP): the server starts the learner's own agent (Claude Code via Zed's adapter, Codex via codex-acp, Gemini CLI, and others) over stdio, sends each chat message as a `session/prompt`, and streams `session/update` back to the browser, with b-learn's commands exposed to the agent as tools. The queue stays for research and checks.
+- **Streaming chat.** Questions reach agents through the work queue, so answers arrive in seconds when an agent is attached, but not word by word. The recommended next step is the Agent Client Protocol (ACP): the server starts the learner's own agent (Claude Code via Zed's adapter, Codex via codex-acp, Gemini CLI, and others) over stdio, sends each chat message as a `session/prompt`, and streams `session/update` back to the browser, with b-learn's commands exposed to the agent as tools. The queue stays for research and checks.
 - **Store-level policy for private stores** beyond the flag and the brief (for example, restricting which source systems may be registered).

@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Text.Json;
 using BLearn.Application;
 using BLearn.Domain;
-using BLearn.Infrastructure.Agents;
 using BLearn.Infrastructure.Fetching;
 using BLearn.Infrastructure.Markdown;
 using BLearn.Infrastructure.Sqlite;
@@ -31,7 +30,7 @@ public static class WebApp
         var fetcher = new SourceFetcher(SourceFetcher.CreateClient());
         // The command agents should run: this executable's full path when it is blearn, so pasted instructions work without PATH changes.
         var exe = AgentExe(options.Exe);
-        var session = new StoreSession(provider, clock, fetcher, exe);
+        var session = new StoreSession(provider, clock, fetcher);
         if (options.StorePath is not null) session.Open(options.StorePath);
 
         var builder = WebApplication.CreateSlimBuilder();
@@ -179,8 +178,11 @@ public static class WebApp
             var m = s.Queue.TryReceive([queue], TimeSpan.FromSeconds(r?.LeaseSeconds ?? 1800), r?.Session ?? "http");
             return m is null ? Results.NoContent() : Results.Json(m);
         }));
-        app.MapDelete("/api/leases/{receipt}", (string receipt) => WithStore(session, s =>
-            s.Queue.Ack(receipt) ? Results.NoContent() : LeaseLost()));
+        app.MapDelete("/api/leases/{receipt}", (string receipt, string? withoutOutcome) => WithStore(session, s =>
+        {
+            var done = WorkOutcomes.Complete(s, receipt, withoutOutcome);
+            return done.Accepted ? Results.NoContent() : CommandResultJson(done);
+        }));
         app.MapPatch("/api/leases/{receipt}", (string receipt, LeasePatch r) => WithStore(session, s =>
             !r.Release ? Results.Json(new { error = "A lease patch can only release: send {\"release\": true}." }, statusCode: 400)
             : s.Queue.Nack(receipt, r.Error) ? Results.NoContent() : LeaseLost()));
@@ -188,18 +190,8 @@ public static class WebApp
         // ----- events and the agent brief -----
         app.MapGet("/api/events", (long? after, int? limit) => WithStore(session, s =>
             Results.Json(s.Events.Read(after ?? 0, null, Math.Clamp(limit ?? 100, 1, 1000)))));
-        // ----- agent connection -----
-        app.MapGet("/api/agents", () => WithStore(session, s => Results.Json(AgentsPayload(session, s))));
-        app.MapPost("/api/agents/connect", (ConnectRequest r) => WithStore(session, s => Guard(() =>
-        {
-            session.Connect(r.Harness, r.AutoConnect ?? true);
-            return Results.Json(AgentsPayload(session, s));
-        })));
-        app.MapPost("/api/agents/disconnect", () => WithStore(session, s =>
-        {
-            session.Disconnect(forget: true);
-            return Results.Json(AgentsPayload(session, s));
-        }));
+        // ----- agent connection (agents attach themselves; this reports who is connected) -----
+        app.MapGet("/api/agents", () => WithStore(session, s => Results.Json(AgentsPayload(s))));
 
         app.MapGet("/api/brief", () => WithStore(session, store =>
             Results.Text(AgentBrief.Render(store.Queries.GetInfo(), exe), "text/plain; charset=utf-8")));
@@ -230,7 +222,7 @@ public static class WebApp
                 // Agent presence is not in the event log; send it whenever it changes (checked every second).
                 if (++tick % 2 == 0)
                 {
-                    var agents = JsonSerializer.Serialize(AgentsPayload(session, store), Json.Options);
+                    var agents = JsonSerializer.Serialize(AgentsPayload(store), Json.Options);
                     if (agents != lastAgents)
                     {
                         lastAgents = agents;
@@ -254,24 +246,18 @@ public static class WebApp
         await app.RunAsync();
     }
 
-    /// <summary>Connection state for the UI: who is connected, what they are doing, and which agents b-learn can start.</summary>
-    private static object AgentsPayload(StoreSession session, IStore store)
+    /// <summary>Connection state for the UI: which agents are connected and what they are doing.</summary>
+    private static object AgentsPayload(IStore store)
     {
         var status = store.Agents.Status();
         return new
         {
             status.Connected,
-            agents = status.Agents.Where(a => a.State != AgentStates.Offline).Select(a => new
-            {
-                a.Session, a.Harness, a.Managed, a.State, a.Activity, a.Work,
-            }),
-            harnesses = Harnesses.Detect().Select(h => new { h.Id, h.Name, h.Available }),
-            managed = session.Runner is { } r ? new { r.Harness, r.Session, running = r.Running } : null,
-            autoConnect = UserSettings.Load().AutoConnect,
+            agents = status.Agents.Where(a => a.State != AgentStates.Offline).Select(a => new { a.Session, a.State, a.Activity, a.Work }),
         };
     }
 
-    /// <summary>The blearn command a managed agent should run: this executable when it is blearn itself.</summary>
+    /// <summary>The blearn command agents should run: this executable when it is blearn itself.</summary>
     private static string AgentExe(string configured)
     {
         if (Path.IsPathRooted(configured)) return configured;
@@ -353,7 +339,6 @@ public static class WebApp
 }
 
 public sealed record OpenStoreRequest(string Path);
-public sealed record ConnectRequest(string Harness, bool? AutoConnect);
 /// <param name="RootGloss">Optional; a placeholder is used and the first research replaces it.</param>
 /// <param name="WebSource">Register the public web as a source of truth (default true).</param>
 public sealed record CreateStoreRequest(string Path, string Name, string RootTitle, string? RootGloss, bool Private, bool? WebSource);
@@ -372,56 +357,12 @@ public sealed record LeaseRequest(string? Session, int? LeaseSeconds);
 public sealed record LeasePatch(bool Release, string? Error);
 
 /// <summary>The store the UI currently has open. Switching stores is serialized.</summary>
-internal sealed class StoreSession(IStoreProvider provider, IClock clock, ISourceFetcher fetcher, string agentExe)
+internal sealed class StoreSession(IStoreProvider provider, IClock clock, ISourceFetcher fetcher)
 {
     private readonly Lock _lock = new();
 
     public IStore? Current { get; private set; }
     public BLearnCommands? Commands { get; private set; }
-
-    /// <summary>The agent b-learn started for the open store, if any.</summary>
-    public AgentRunner? Runner { get; private set; }
-
-    /// <summary>Starts the user's agent harness for the open store, replacing any agent b-learn started before.</summary>
-    public void Connect(string harness, bool remember)
-    {
-        lock (_lock)
-        {
-            if (Current is null) throw new InvalidOperationException("No store is open.");
-            StopRunner();
-            var process = Harnesses.Create(harness, agentExe);
-            var work = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "b-learn", "agent-work",
-                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Current.Path)))[..12]);
-            Runner = new AgentRunner(Current, process, harness, agentExe, work);
-            Runner.Start();
-            if (remember) new UserSettings(harness).Save();
-        }
-    }
-
-    public void Disconnect(bool forget)
-    {
-        lock (_lock)
-        {
-            StopRunner();
-            if (forget) new UserSettings((string?)null).Save();
-        }
-    }
-
-    private void StopRunner()
-    {
-        if (Runner is null) return;
-        Runner.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        Runner = null;
-    }
-
-    /// <summary>Reconnects the agent the user chose last time, when it is installed.</summary>
-    private void AutoConnect()
-    {
-        if (UserSettings.Load().AutoConnect is { } harness && Harnesses.Detect().Any(h => h.Id == harness && h.Available))
-        {
-            try { Connect(harness, remember: false); } catch (InvalidOperationException) { }
-        }
-    }
 
     public void Open(string path)
     {
@@ -464,10 +405,8 @@ internal sealed class StoreSession(IStoreProvider provider, IClock clock, ISourc
 
     private void Swap(IStore? store)
     {
-        StopRunner();
         Current?.Dispose();
         Current = store;
         Commands = store is null ? null : new BLearnCommands(store, clock, fetcher);
-        if (store is not null) AutoConnect();
     }
 }

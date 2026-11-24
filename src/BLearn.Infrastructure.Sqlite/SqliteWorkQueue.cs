@@ -11,12 +11,6 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
 {
     public const int MaxAttempts = 5;
 
-    /// <summary>
-    /// Agents b-learn starts report in every few seconds while working, so silence this long means the
-    /// process died; its work becomes available without waiting for the lease to run out.
-    /// </summary>
-    public static readonly TimeSpan ManagedSilence = TimeSpan.FromMinutes(2);
-
     internal const string Select =
         "SELECT id, queue, dedup_key, payload, state, attempts, created_at, lease_until, receipt, received_by, last_error FROM messages";
 
@@ -33,7 +27,7 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
         {
             var now = Sql.UnixMs(clock.Now);
             var queueFilter = "";
-            (string, object?)[] args = [("@now", now), ("@stale", now - (long)ManagedSilence.TotalMilliseconds)];
+            (string, object?)[] args = [("@now", now)];
             if (queues.Count > 0)
             {
                 var (clause, qArgs) = Sql.In("q", queues);
@@ -46,8 +40,7 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
                 var candidate = c.Query($"""
                     SELECT id, attempts FROM messages
                     WHERE ((state = 'ready' AND (lease_until IS NULL OR lease_until <= @now))
-                        OR (state = 'leased' AND (lease_until < @now OR received_by IN (
-                            SELECT session FROM agents WHERE managed = 1 AND (left_at IS NOT NULL OR last_seen < @stale))))) {queueFilter}
+                        OR (state = 'leased' AND lease_until < @now)) {queueFilter}
                     ORDER BY priority DESC, id LIMIT 1
                     """, r => (Id: r.GetInt64(0), Attempts: (int)r.GetInt64(1)), args).FirstOrDefault();
                 if (candidate.Id == 0)
@@ -80,11 +73,18 @@ internal sealed class SqliteWorkQueue(string path, IClock clock) : IWorkQueue
         }
     }
 
-    public bool Ack(string receipt)
+    public bool Ack(string receipt, string? note = null)
     {
         using var c = Sql.Open(path);
         Touch(c, receipt);
-        return c.Exec("UPDATE messages SET state = 'done', lease_until = NULL WHERE receipt = @r AND state = 'leased'", ("@r", receipt)) == 1;
+        return c.Exec("UPDATE messages SET state = 'done', lease_until = NULL, last_error = coalesce(@n, last_error) WHERE receipt = @r AND state = 'leased'",
+            ("@r", receipt), ("@n", note)) == 1;
+    }
+
+    public QueueMessage? Find(string receipt)
+    {
+        using var c = Sql.Open(path);
+        return c.Query($"{Select} WHERE receipt = @r", Map, ("@r", receipt)).FirstOrDefault();
     }
 
     /// <summary>Finishing or releasing work is a sign of life from the agent holding it.</summary>

@@ -331,10 +331,10 @@ namespace BLearn.Cli
                 case ("lease", "delete"):
                 {
                     var receipt = a.At(0, "receipt");
+                    var without = a.Opt("without-outcome");
                     a.EnsureAllUsed();
-                    return store.Queue.Ack(receipt)
-                        ? Emit(new { done = receipt })
-                        : Emit(new { accepted = false, violation = "lease-lost", message = "Unknown receipt, or the lease expired and the message was redelivered." }, ExitCodes.Rejected);
+                    var done = WorkOutcomes.Complete(store, receipt, without);
+                    return done.Accepted ? Emit(new { done = receipt }) : Result(done);
                 }
                 case ("lease", "patch"):
                 case ("lease", "release"):
@@ -446,11 +446,23 @@ namespace BLearn.Cli
             catch (JsonException ex) { throw new UsageException($"The {what} JSON is invalid: {ex.Message}"); }
         }
 
+        /// <summary>The store from --store, BLEARN_STORE, or else the store open in the running b-learn UI.</summary>
         private static IStore OpenStore(CliArgs a)
         {
-            var path = a.Opt("store") ?? Environment.GetEnvironmentVariable("BLEARN_STORE")
-                ?? throw new UsageException("No store given. Pass --store <file.blearn> or set BLEARN_STORE.");
+            var path = a.Opt("store") ?? Environment.GetEnvironmentVariable("BLEARN_STORE") ?? StoreOpenInUi(a.Int("port") ?? 5170)
+                ?? throw new UsageException("No store given. Open one in the b-learn UI, or pass --store <file.blearn>, or set BLEARN_STORE.");
             return Provider.Open(path);
+        }
+
+        private static string? StoreOpenInUi(int port)
+        {
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                using var doc = JsonDocument.Parse(http.GetStringAsync($"http://localhost:{port}/api/session").GetAwaiter().GetResult());
+                return doc.RootElement.TryGetProperty("store", out var s) && s.ValueKind == JsonValueKind.Object ? s.GetProperty("path").GetString() : null;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or KeyNotFoundException) { return null; }
         }
 
         private static string Session(CliArgs a) =>
@@ -572,7 +584,7 @@ namespace BLearn.Cli
                   blearn serve [--store F] [--port N] [--no-open]
 
                 Commands are 'blearn <resource> <verb>' with the verbs get, list, post, put, patch, delete.
-                Every command except 'store post' and 'store list' takes --store <file.blearn> (or BLEARN_STORE).
+                Every command except 'store post' and 'store list' works on --store <file.blearn>, BLEARN_STORE, or the store open in the b-learn UI.
                 Output is JSON. Exit codes: 0 ok, 1 rejected by a rule, 2 usage, 3 wait timed out, 4 not found.
 
                 Store
@@ -614,7 +626,7 @@ namespace BLearn.Cli
 
                 Work and events
                   lease          post [queue...] [--wait] [--timeout SEC] [--lease SEC] [--session X]   (alias: queue receive)
-                                 delete <receipt> (done; alias: queue ack) | patch <receipt> --release [--error E] (alias: queue nack)
+                                 delete <receipt> [--without-outcome "why"] (done; alias: queue ack) | patch <receipt> --release [--error E] (alias: queue nack)
                   message        list [--state ready|leased|done|dead]
                   event          list [--after N] [--type T,...] [--limit N] [--wait [--timeout SEC]]
 

@@ -24,7 +24,7 @@ blearn --store ~/Documents/b-learn/rust.blearn serve
 
 ## Working with an agent
 
-If Claude Code is installed, click **Connect Claude Code** (in the Agents panel, or wherever the UI says no agent is connected): b-learn starts it for each request with a restricted set of permissions, and reconnects it whenever you open a store. For any other harness, open the **Agents** panel and paste its one-line instruction into it. The agent reads `blearn brief get`, then waits for work with `blearn lease post --wait` in a background shell. Requests you make in the UI are queued, claimed by exactly one agent, and appear as they land: opening a stub asks for its research, questions (typed in the chat, or by highlighting text and choosing "Ask about this") get answers in the chat window, and new facts get an independent check.
+Attach the agent you already use (Claude Code, Codex, Cursor, Gemini CLI, or any agent that can run shell commands): copy the line the UI offers (in the Agents panel, or wherever it says no agent is connected) and paste it into your agent. It reads `blearn brief get`, coordinates subagents to work on several requests at once, and the UI shows it as connected while it listens.
 
 ## CLI
 

@@ -595,17 +595,6 @@ public sealed class PresenceTests : StoreFixture
     }
 
     [Fact]
-    public void WorkHeldByASilentManagedAgentIsRedeliveredBeforeTheLeaseEnds()
-    {
-        Ok(Commands.PostQuestion(new QuestionInput("root", "What is this?")));
-        Store.Agents.Heartbeat("managed-1", "claude-code", managed: true);
-        var first = Store.Queue.TryReceive([], TimeSpan.FromMinutes(60), "managed-1")!;
-        Assert.Null(Store.Queue.TryReceive([], TimeSpan.FromMinutes(60), "managed-2"));
-        Clock.Now = Clock.Now.AddMinutes(3);
-        Assert.Equal(first.Id, Store.Queue.TryReceive([], TimeSpan.FromMinutes(60), "managed-2")!.Id);
-    }
-
-    [Fact]
     public void LeavingIsImmediate()
     {
         Store.Queue.TryReceive([], TimeSpan.FromMinutes(5), "agent-a");
@@ -614,81 +603,31 @@ public sealed class PresenceTests : StoreFixture
     }
 }
 
-public sealed class AgentRunnerTests : StoreFixture
+public sealed class WorkOutcomeTests : StoreFixture
 {
-    /// <summary>Stands in for Claude Code: answers questions through the real commands.</summary>
-    private sealed class FakeAgent(BLearnCommands commands, bool fail = false) : BLearn.Infrastructure.Agents.IAgentProcess
-    {
-        public List<string> Prompts { get; } = [];
-
-        public Task<BLearn.Infrastructure.Agents.AgentRunResult> RunAsync(string prompt, string workDirectory, IReadOnlyDictionary<string, string> environment, Action<string> onActivity, CancellationToken ct)
-        {
-            Prompts.Add(prompt);
-            onActivity("Reading the graph");
-            if (fail) return Task.FromResult(new BLearn.Infrastructure.Agents.AgentRunResult(false, "rate limited"));
-            var conversation = System.Text.RegularExpressions.Regex.Match(prompt, "\"conversationId\": \"([^\"]+)\"").Groups[1].Value;
-            var session = environment["BLEARN_SESSION"];
-            var r = commands.PostReply(conversation, "It is the root concept.", session);
-            return Task.FromResult(new BLearn.Infrastructure.Agents.AgentRunResult(r.Accepted, r.Message));
-        }
-    }
-
-    private static async Task Until(Func<bool> condition)
-    {
-        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(50);
-        Assert.True(condition());
-    }
-
     [Fact]
-    public async Task RunnerConnectsAnswersAQuestionAndDisconnects()
+    public void FinishingIsRefusedUntilTheResultIsInTheStore()
     {
-        var agent = new FakeAgent(Commands);
-        var runner = new BLearn.Infrastructure.Agents.AgentRunner(Store, agent, "fake", "blearn", Path.Combine(Dir, "work"));
-        runner.Start();
-        await Until(() => Store.Agents.Status().Connected);
-
         var asked = Ok(Commands.PostQuestion(new QuestionInput("root", "What is this?")));
         var id = JsonDocument.Parse(asked.Events.Single().PayloadJson).RootElement.GetProperty("conversationId").GetString()!;
-        await Until(() => Store.Queries.GetConversation(id)!.AwaitingReply == false && Store.Queue.List().Count == 0);
+        var m = Store.Queue.TryReceive([], TimeSpan.FromMinutes(5), "agent")!;
 
-        var prompt = Assert.Single(agent.Prompts);
-        Assert.Contains("Do not run lease commands", prompt);
-        Assert.Contains("blearn reply post", prompt);
-        Assert.DoesNotContain("--store \"", prompt);
-        Assert.DoesNotContain("lease post --wait", prompt);
-        Assert.Equal("agent", Store.Queries.GetConversation(id)!.Messages[^1].Role);
-
-        await runner.DisposeAsync();
-        Assert.False(Store.Agents.Status().Connected);
+        Rejected("outcome-missing", WorkOutcomes.Complete(Store, m.Receipt!, null));
+        Ok(Commands.PostReply(id, "It is the root concept.", "agent-1"));
+        Ok(WorkOutcomes.Complete(Store, m.Receipt!, null));
+        Assert.Empty(Store.Queue.List());
     }
 
     [Fact]
-    public async Task FailedRunHandsTheWorkBackWithTheError()
+    public void AnAgentCanFinishWithoutAResultByStatingWhy()
     {
-        var runner = new BLearn.Infrastructure.Agents.AgentRunner(Store, new FakeAgent(Commands, fail: true), "fake", "blearn", Path.Combine(Dir, "work"));
-        Ok(Commands.PostQuestion(new QuestionInput("root", "What is this?")));
-        runner.Start();
-        await Until(() => Store.Queue.List().SingleOrDefault() is { State: "ready", LastError: "rate limited" });
-        await runner.DisposeAsync();
-    }
-}
-
-public sealed class AgentOutcomeTests : StoreFixture
-{
-    private sealed class DoNothing : BLearn.Infrastructure.Agents.IAgentProcess
-    {
-        public Task<BLearn.Infrastructure.Agents.AgentRunResult> RunAsync(string prompt, string workDirectory, IReadOnlyDictionary<string, string> environment, Action<string> onActivity, CancellationToken ct) =>
-            Task.FromResult(new BLearn.Infrastructure.Agents.AgentRunResult(true, null));
-    }
-
-    [Fact]
-    public async Task AgentThatClaimsSuccessWithoutReplyingHandsTheQuestionBack()
-    {
-        var runner = new BLearn.Infrastructure.Agents.AgentRunner(Store, new DoNothing(), "fake", "blearn", Path.Combine(Dir, "work"));
-        Ok(Commands.PostQuestion(new QuestionInput("root", "What is this?")));
-        runner.Start();
-        for (var i = 0; i < 100 && Store.Queue.List().Single().LastError is null; i++) await Task.Delay(50);
-        await runner.DisposeAsync();
-        Assert.Equal("The agent finished without replying to the question.", Store.Queue.List().Single().LastError);
+        Ok(Commands.PostConcept(new ConceptInput("obscure", "Obscure thing", "G.")));
+        Ok(Commands.PostRequest("obscure", new RequestInput("expand")));
+        var m = Store.Queue.TryReceive([], TimeSpan.FromMinutes(5), "agent")!;
+        Rejected("outcome-missing", WorkOutcomes.Complete(Store, m.Receipt!, "  "));
+        Ok(WorkOutcomes.Complete(Store, m.Receipt!, "No source in scope mentions it."));
+        var done = Store.Queue.List(includeDone: true).Single(x => x.Id == m.Id);
+        Assert.Equal(("done", "No source in scope mentions it."), (done.State, done.LastError));
+        Rejected("lease-lost", WorkOutcomes.Complete(Store, m.Receipt!, null));
     }
 }

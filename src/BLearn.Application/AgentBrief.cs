@@ -9,11 +9,9 @@ namespace BLearn.Application;
 /// </summary>
 public static class AgentBrief
 {
-    /// <param name="managedSession">Set when b-learn runs the agent one task at a time: the queue loop is replaced by that session.</param>
-    public static string Render(StoreInfo info, string exe, string? managedSession = null)
+    public static string Render(StoreInfo info, string exe)
     {
-        // A managed agent has the store and session in its environment, so commands stay short.
-        var s = managedSession is null ? $"{exe} --store \"{info.Path}\"" : "blearn";
+        var s = $"{exe} --store \"{info.Path}\"";
         var sb = new StringBuilder();
         sb.AppendLine($"# b-learn agent brief: {info.Name}");
         sb.AppendLine();
@@ -37,23 +35,18 @@ public static class AgentBrief
             sb.AppendLine("This store is PRIVATE. Never put its content (names, clauses, figures) into web searches or other external services.");
         }
         sb.AppendLine();
-        if (managedSession is not null)
-        {
-            sb.AppendLine("## How you are run");
-            sb.AppendLine("b-learn started you for one task (below). Do not run lease commands; b-learn marks the task done when you exit.");
-            sb.AppendLine("BLEARN_STORE and BLEARN_SESSION are set, so leave out --store and --session. You may only run commands that start with \"blearn\":");
-            sb.AppendLine("run each one on its own (no variables, no chaining with ; or &&, no pipes). Read web pages with your web tools or blearn page get.");
-            sb.AppendLine("Write any files you need in the current directory. Finish the task, then stop.");
-        }
-        else
-        {
-        sb.AppendLine("## Loop");
-        sb.AppendLine("Pick one session id for this whole run (for example your harness's session id, or agent-<random>) and pass it as --session everywhere.");
-        sb.AppendLine($"1. Run in a background shell and wait for it to exit: {s} lease post --wait --session <id>");
-        sb.AppendLine("2. Do the work for the message's kind (below).");
-        sb.AppendLine($"3. {s} lease delete <receipt> when done (or: lease patch <receipt> --release --error \"why\" to hand it back; it waits a minute before redelivery).");
-        sb.AppendLine("4. Go back to step 1. Exit code 3 means the wait timed out: wait again unless your session should stop.");
-        }
+        sb.AppendLine("## How to work: orchestrate");
+        sb.AppendLine("You coordinate; subagents do the work, in parallel. Pick a session id for yourself (your harness's session id, or agent-<random>).");
+        sb.AppendLine($"1. Wait for work in a background shell: {s} lease post --wait --session <id>. Then claim more without waiting");
+        sb.AppendLine($"   ({s} lease post --session <id>) until you hold up to 4 messages or the queue is empty.");
+        sb.AppendLine("2. Give each message to its own subagent: this brief, the message payload, and its own session id (<id>-1, <id>-2, ...).");
+        sb.AppendLine("   Keep the receipts yourself. Inside a large expand, a subagent may split source reading further.");
+        sb.AppendLine($"3. When a subagent finishes: {s} lease delete <receipt> (or lease patch <receipt> --release --error \"why\"), then claim the next message.");
+        sb.AppendLine("4. Start ask messages first: a learner is waiting. Give a check only to a subagent that did not research that concept.");
+        sb.AppendLine("5. Exit code 3 means the wait timed out: wait again unless your session should stop.");
+        sb.AppendLine("If your harness cannot run subagents, do the messages one at a time yourself.");
+        sb.AppendLine("lease delete is refused until the result is in the store. If there is honestly nothing to produce (no source in scope),");
+        sb.AppendLine("finish with lease delete <receipt> --without-outcome \"why\".");
         sb.AppendLine();
         sb.AppendLine("## Kinds");
         sb.AppendLine("- expand: research a stub or unverified concept. Read sources, post evidence, put facts, post sourced edges, then put teaching.");
