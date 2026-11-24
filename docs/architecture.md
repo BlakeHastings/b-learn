@@ -221,12 +221,11 @@ A write is rejected if the aggregate changed since it was read (each aggregate h
 - Self-contained single-file binaries (Windows, Linux, macOS; x64 and ARM64), bundling the runtime, web server, SQLite and UI. No .NET install required.
 - Install with `curl -fsSL <url>/install.sh | sh` or `irm <url>/install.ps1 | iex`.
 - `npx blearn` through an npm package with per-platform binaries (the esbuild and Biome pattern).
-- `dnx blearn` for users with the .NET 10 SDK.
-- Release automation follows the stable and edge channel pipeline (MinVer and release-please).
+- Release automation follows the stable and edge channel pipeline (MinVer and release-please). Details in [releasing.md](releasing.md).
 
 ## Not built yet
 
-- **Distribution.** Self-contained binaries, install scripts, the npm wrapper and release automation. Today it runs with the .NET SDK.
+- **More install routes.** `dnx blearn` (a .NET tool package), Linux musl (Alpine) builds, and signed macOS and Windows binaries.
 - **Minimum trust as a gate.** A source's minimum trust level marks facts as not verified in views; it does not block submission.
 - **PDF and other binary sources.** `evidence fetch` handles web pages and text files; other formats must be captured as text through the harness.
 - **Streaming chat.** Questions reach agents through the work queue, so answers arrive in seconds when an agent is attached, but not word by word. The recommended next step is the Agent Client Protocol (ACP): the server starts the learner's own agent (Claude Code via Zed's adapter, Codex via codex-acp, Gemini CLI, and others) over stdio, sends each chat message as a `session/prompt`, and streams `session/update` back to the browser, with b-learn's commands exposed to the agent as tools. The queue stays for research and checks.

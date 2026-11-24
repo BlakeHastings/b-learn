@@ -6,21 +6,22 @@ The design is in [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
-Requires the .NET 10 SDK for now (self-contained binaries are planned).
-
 ```sh
-dotnet run --project src/BLearn.Cli          # opens the web UI on the store picker
+npx blearn
 ```
 
-Create a store from the picker, or from the command line:
+That opens b-learn in your browser on a store picker. Nothing else is needed: npm installs one self-contained binary for your platform. Prefer a standalone install?
 
 ```sh
-blearn store post ~/Documents/b-learn/rust.blearn --name "Learning Rust" \
-  --root-title Rust --root-gloss "A systems programming language focused on safety and speed."
-blearn --store ~/Documents/b-learn/rust.blearn source post web --system web \
-  --scope "Official documentation and encyclopedias"
-blearn --store ~/Documents/b-learn/rust.blearn serve
+curl -fsSL https://raw.githubusercontent.com/BlakeHastings/b-learn/main/install/install.sh | sh     # macOS, Linux
 ```
+```powershell
+irm https://raw.githubusercontent.com/BlakeHastings/b-learn/main/install/install.ps1 | iex          # Windows
+```
+
+Then run `blearn`. Pick what you want to learn, and attach your agent (below). Builds of the latest `main` are on the edge channel: `npx blearn@edge`. See [docs/releasing.md](docs/releasing.md).
+
+From source (needs the .NET 10 SDK): `dotnet run --project src/BLearn.Cli`.
 
 ## Working with an agent
 

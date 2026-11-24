@@ -38,6 +38,7 @@ namespace BLearn.Cli
                 argv = HoistGlobalOptions(argv);
                 if (argv.Length == 0) return await Serve(new CliArgs([]));
                 var (resource, verb) = (argv[0], argv.Length > 1 ? argv[1] : "");
+                if (resource is "--version" or "version") { Console.WriteLine(BuildInfo.Version); return ExitCodes.Ok; }
                 if (resource is "help" or "--help" or "-h") return argv.Length > 1 && !argv[1].StartsWith("--") ? Help(argv[1]) : Help();
                 if (verb is "help" or "--help" or "-h" || argv.Contains("--help")) return Help(resource);
                 if (resource == "serve") return await Serve(new CliArgs(argv.Skip(1).ToArray()));
@@ -578,7 +579,7 @@ namespace BLearn.Cli
         }
 
         private const string HelpText = """
-                blearn: build and explore evidence-backed concept graphs.
+                blearn: build and explore evidence-backed concept graphs. (blearn --version prints the version)
 
                   blearn                                  open the web UI (store picker)
                   blearn serve [--store F] [--port N] [--no-open]

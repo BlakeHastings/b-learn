@@ -49,6 +49,7 @@ public static class WebApp
         {
             store = session.Current?.Queries.GetInfo(),
             recent = RecentStores.Load(),
+            version = BuildInfo.Version,
             defaultFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "b-learn"),
             defaultWebScope = StoreSession.DefaultWebScope,
             exe,

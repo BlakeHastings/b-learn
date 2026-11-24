@@ -1,0 +1,70 @@
+# Edge channel: every code change on main becomes a rolling prerelease (GitHub release "edge",
+# npm dist-tag "edge"). Version 0.1.0-alpha.0.N from MinVer; the "edge" tag has no "v", so MinVer ignores it.
+name: edge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "npm/**"
+      - "install/**"
+      - "Directory.Build.props"
+      - "**/*.csproj"
+      - ".github/workflows/build.yml"
+      - ".github/workflows/edge.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: edge
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: assets
+          path: assets
+      - name: Replace the edge prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete edge --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create edge assets/* --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            --title "Edge ${{ needs.build.outputs.version }}" \
+            --notes "Rolling prerelease from the tip of main. Install: npx blearn@edge"
+
+  npm:
+    # Off until the repository variable NPM_PUBLISH is set to true (see docs/releasing.md).
+    if: vars.NPM_PUBLISH == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm
+          path: tgz
+      - name: Publish (platform packages first, then the launcher)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm install -g npm@latest
+          for f in tgz/blearn-win32-*.tgz tgz/blearn-linux-*.tgz tgz/blearn-darwin-*.tgz; do npm publish "$f" --tag edge --access public --provenance; done
+          npm publish "tgz/blearn-${{ needs.build.outputs.version }}.tgz" --tag edge --access public --provenance

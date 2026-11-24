@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# The npm launcher lives in a bin folder; keep it.
+!npm/blearn/bin/

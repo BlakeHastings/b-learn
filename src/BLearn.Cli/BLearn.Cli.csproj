@@ -9,6 +9,19 @@
     <RootNamespace>BLearn.Cli</RootNamespace>
   </PropertyGroup>
 
+  <!-- Distribution: publishing for a runtime (-r win-x64, linux-arm64, ...) yields one self-contained file
+       that needs no .NET install. The UI is an embedded resource; SQLite's native library is bundled. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\BLearn.Application\BLearn.Application.csproj" />
     <ProjectReference Include="..\BLearn.Infrastructure.Sqlite\BLearn.Infrastructure.Sqlite.csproj" />
